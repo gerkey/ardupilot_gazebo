@@ -18,8 +18,8 @@
 #define GAZEBO_PLUGINS_ARDUPILOTPLUGIN_HH_
 
 #include <sdf/sdf.hh>
-#include <gazebo/common/common.hh>
-#include <gazebo/physics/physics.hh>
+#include <ignition/common.hh>
+#include <ignition/physics.hh>
 
 namespace gazebo
 {

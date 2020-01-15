@@ -40,11 +40,11 @@
 #include <vector>
 #include <sdf/sdf.hh>
 #include <ignition/math/Filter.hh>
-#include <gazebo/common/Assert.hh>
-#include <gazebo/common/Plugin.hh>
-#include <gazebo/msgs/msgs.hh>
-#include <gazebo/sensors/sensors.hh>
-#include <gazebo/transport/transport.hh>
+#include <sdf/Assert.hh>
+#include <ignition/common/Plugin.hh>
+#include <ignition/msgs.hh>
+#include <ignition/sensors.hh>
+#include <ignition/transport.hh>
 #include "include/ArduPilotPlugin.hh"
 
 #define MAX_MOTORS 255
