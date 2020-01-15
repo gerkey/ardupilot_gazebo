@@ -8,14 +8,20 @@ project(ardupilot_sitl_gazebo)
 ## Find Dependencies ##
 #######################
 
-find_package(gazebo REQUIRED)
+#find_package(gazebo REQUIRED)
+find_package(ignition-common3-all REQUIRED)
+find_package(ignition-math6-all REQUIRED)
+find_package(ignition-msgs5-all REQUIRED)
+find_package(ignition-physics2-all REQUIRED)
+find_package(ignition-sensors3-all REQUIRED)
+find_package(ignition-transport8-all REQUIRED)
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GAZEBO_CXX_FLAGS}")
 
-if("${GAZEBO_VERSION}" VERSION_LESS "8.0")
-    message(FATAL_ERROR "You need at least Gazebo 8.0. Your version: ${GAZEBO_VERSION}")
-else()
-    message("Gazebo version: ${GAZEBO_VERSION}")
-endif()
+#if("${GAZEBO_VERSION}" VERSION_LESS "8.0")
+#    message(FATAL_ERROR "You need at least Gazebo 8.0. Your version: ${GAZEBO_VERSION}")
+#else()
+#    message("Gazebo version: ${GAZEBO_VERSION}")
+#endif()
 
 ###### COMPILE RULES ######
 include(CheckCXXCompilerFlag)
@@ -140,20 +146,20 @@ set (plugins_single_header
         GimbalSmall2dPlugin
         )
 
-add_library(ArduCopterIRLockPlugin SHARED src/ArduCopterIRLockPlugin.cc)
-target_link_libraries(ArduCopterIRLockPlugin ${GAZEBO_LIBRARIES})
+#add_library(ArduCopterIRLockPlugin SHARED src/ArduCopterIRLockPlugin.cc)
+#target_link_libraries(ArduCopterIRLockPlugin ${GAZEBO_LIBRARIES})
 
 add_library(ArduPilotPlugin SHARED src/ArduPilotPlugin.cc)
 target_link_libraries(ArduPilotPlugin ${GAZEBO_LIBRARIES})
 
-if("${GAZEBO_VERSION}" VERSION_LESS "8.0")
-    add_library(GimbalSmall2dPlugin SHARED src/GimbalSmall2dPlugin.cc)
-    target_link_libraries(GimbalSmall2dPlugin ${GAZEBO_LIBRARIES})
-    install(TARGETS GimbalSmall2dPlugin DESTINATION ${GAZEBO_PLUGIN_PATH})
-endif()
+#if("${GAZEBO_VERSION}" VERSION_LESS "8.0")
+#    add_library(GimbalSmall2dPlugin SHARED src/GimbalSmall2dPlugin.cc)
+#    target_link_libraries(GimbalSmall2dPlugin ${GAZEBO_LIBRARIES})
+#    install(TARGETS GimbalSmall2dPlugin DESTINATION ${GAZEBO_PLUGIN_PATH})
+#endif()
 
-install(TARGETS ArduCopterIRLockPlugin DESTINATION ${GAZEBO_PLUGIN_PATH})
-install(TARGETS ArduPilotPlugin DESTINATION ${GAZEBO_PLUGIN_PATH})
-
-install(DIRECTORY models DESTINATION ${GAZEBO_MODEL_PATH}/..)
-install(DIRECTORY worlds DESTINATION ${GAZEBO_MODEL_PATH}/..)
+#install(TARGETS ArduCopterIRLockPlugin DESTINATION ${GAZEBO_PLUGIN_PATH})
+#install(TARGETS ArduPilotPlugin DESTINATION ${GAZEBO_PLUGIN_PATH})
+#
+#install(DIRECTORY models DESTINATION ${GAZEBO_MODEL_PATH}/..)
+#install(DIRECTORY worlds DESTINATION ${GAZEBO_MODEL_PATH}/..)
