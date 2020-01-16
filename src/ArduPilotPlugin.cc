@@ -51,7 +51,7 @@
 
 using namespace gazebo;
 
-GZ_REGISTER_MODEL_PLUGIN(ArduPilotPlugin)
+//GZ_REGISTER_MODEL_PLUGIN(ArduPilotPlugin)
 
 /// \brief A servo packet.
 struct ServoPacket
@@ -126,7 +126,7 @@ class Control
   public: double cmd = 0;
 
   /// \brief Velocity PID for motor control
-  public: common::PID pid;
+  public: ignition::math::PID pid;
 
   /// \brief Control type. Can be:
   /// VELOCITY control velocity of joint
@@ -141,7 +141,7 @@ class Control
   public: std::string jointName;
 
   /// \brief Control propeller joint.
-  public: physics::JointPtr joint;
+  public: ignition::gazebo::Entity joint;
 
   /// \brief direction multiplier for this control
   public: double multiplier = 1;
@@ -314,10 +314,10 @@ class gazebo::ArduPilotSocketPrivate
 class gazebo::ArduPilotPluginPrivate
 {
   /// \brief Pointer to the update event connection.
-  public: event::ConnectionPtr updateConnection;
+  //public: event::ConnectionPtr updateConnection;
 
   /// \brief Pointer to the model;
-  public: physics::ModelPtr model;
+  public: ignition::gazebo::Entity model;
 
   /// \brief String of the model name;
   public: std::string modelName;
@@ -326,7 +326,7 @@ class gazebo::ArduPilotPluginPrivate
   public: std::vector<Control> controls;
 
   /// \brief keep track of controller update sim-time.
-  public: gazebo::common::Time lastControllerUpdateTime;
+  public: ignition::common::Time lastControllerUpdateTime;
 
   /// \brief Controller update mutex.
   public: std::mutex mutex;
@@ -350,13 +350,13 @@ class gazebo::ArduPilotPluginPrivate
   public: uint16_t fdm_port_out;
 
   /// \brief Pointer to an IMU sensor
-  public: sensors::ImuSensorPtr imuSensor;
+  public: ignition::sensors::ImuSensor imuSensor;
   
   /// \brief Pointer to an GPS sensor
-  public: sensors::GpsSensorPtr gpsSensor;
+  //public: ignition::sensors::GpsSensor gpsSensor;
   
   /// \brief Pointer to an Rangefinder sensor
-  public: sensors::RaySensorPtr rangefinderSensor;
+  //public: ignition::sensors::RaySensor rangefinderSensor;
 
   /// \brief false before ardupilot controller is online
   /// to allow gazebo to continue without waiting
@@ -1221,3 +1221,12 @@ void ArduPilotPlugin::SendState() const
 */
   this->dataPtr->socket_out.Send(&pkt, sizeof(pkt));
 }
+
+/ Register plugin
+IGNITION_ADD_PLUGIN(ArduPilotPlugin,
+                    ignition::gazebo::System,
+                    ArduPilotPlugin::ISystemConfigure,
+                    ArduPilotPlugin::ISystemPostUpdate)
+// Add plugin alias so that we can refer to the plugin without the version
+// namespace
+IGNITION_ADD_PLUGIN_ALIAS(ArduPilotPlugin,"ignition::gazebo::systems::ArduPilotPlugin")

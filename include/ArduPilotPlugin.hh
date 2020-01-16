@@ -21,6 +21,10 @@
 #include <ignition/common.hh>
 #include <ignition/physics.hh>
 
+#include <ignition/gazebo/Model.hh>
+#include <ignition/gazebo/Util.hh>
+#include <ignition/gazebo/System.hh>
+
 namespace gazebo
 {
   // Forward declare private data class
@@ -52,7 +56,7 @@ namespace gazebo
   /// <imuName>     scoped name for the imu sensor
   /// <connectionTimeoutMaxCount> timeout before giving up on
   ///                             controller synchronization
-  class GAZEBO_VISIBLE ArduPilotPlugin : public ModelPlugin
+  class ArduPilotPlugin : public ignition::gazebo::System, public ignition::gazebo::ISystemConfigure, public ignition::gazebo::ISystemPostUpdate
   {
     /// \brief Constructor.
     public: ArduPilotPlugin();
@@ -61,7 +65,11 @@ namespace gazebo
     public: ~ArduPilotPlugin();
 
     // Documentation Inherited.
-    public: virtual void Load(physics::ModelPtr _model, sdf::ElementPtr _sdf);
+    //public: virtual void Load(physics::ModelPtr _model, sdf::ElementPtr _sdf);
+    public: virtual void Configure(const ignition::gazebo::Entity &_entity,
+      const std::shared_ptr<const sdf::Element> &_sdf,
+      ignition::gazebo::EntityComponentManager &_ecm,
+      ignition::gazebo::EventManager &/*_eventMgr*/);
 
     /// \brief Update the control surfaces controllers.
     /// \param[in] _info Update information provided by the server.

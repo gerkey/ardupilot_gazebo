@@ -11,6 +11,7 @@ project(ardupilot_sitl_gazebo)
 #find_package(gazebo REQUIRED)
 find_package(sdformat9 REQUIRED)
 find_package(ignition-common3-all REQUIRED)
+find_package(ignition-gazebo3-all REQUIRED)
 find_package(ignition-math6-all REQUIRED)
 find_package(ignition-msgs5-all REQUIRED)
 find_package(ignition-physics2-all REQUIRED)
@@ -132,6 +133,7 @@ include_directories(
         include
 	${SDFORMAT-INCLUDE_DIRS}
         ${IGNITION-COMMON_INCLUDE_DIRS}
+	${IGNITION-GAZEBO_INCLUDE_DIRS}
 	${IGNITION-MATH_INCLUDE_DIRS}
 	${IGNITION-MSGS_INCLUDE_DIRS}
 	${IGNITION-PHYSICS_INCLUDE_DIRS}
@@ -142,6 +144,7 @@ include_directories(
 link_libraries(
 	${SDFORMAT-LIBRARIES}
         ${IGNITION-COMMON_LIBRARIES}
+	${IGNITION-GAZEBO_LIBRARIES}
 	${IGNITION-MATH_LIBRARIES}
 	${IGNITION-MSGS_LIBRARIES}
 	${IGNITION-PHYSICS_LIBRARIES}
