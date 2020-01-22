@@ -54,10 +54,9 @@ namespace systems
   /// <imuName>     scoped name for the imu sensor
   /// <connectionTimeoutMaxCount> timeout before giving up on
   ///                             controller synchronization
-  class ArduPilotPlugin:
+  class IGNITION_GAZEBO_VISIBLE ArduPilotPlugin:
 	  public ignition::gazebo::System,
 	  public ignition::gazebo::ISystemConfigure,
-	  public ignition::gazebo::ISystemPostUpdate,
 	  public ignition::gazebo::ISystemPreUpdate
   {
     /// \brief Constructor.
@@ -74,9 +73,6 @@ namespace systems
     public: void PreUpdate(const ignition::gazebo::UpdateInfo &_info,
                            const ignition::gazebo::EntityComponentManager &_ecm);
 
-    public: void PostUpdate(const ignition::gazebo::UpdateInfo &_info,
-                            const ignition::gazebo::EntityComponentManager &_ecm);
-
     /// \brief Update PID Joint controllers.
     /// \param[in] _dt time step size since last update.
     private: void ApplyMotorForces(const double _dt);
@@ -88,7 +84,7 @@ namespace systems
     private: void ReceiveMotorCommand();
 
     /// \brief Send state to ArduPilot
-    private: void SendState() const;
+    private: void SendState(double _simTime) const;
 
     /// \brief Init ardupilot socket
     private: bool InitArduPilotSockets(const std::shared_ptr<const sdf::Element> &_sdf) const;

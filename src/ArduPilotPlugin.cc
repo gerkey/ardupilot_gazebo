@@ -866,16 +866,11 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
     {
       this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
         this->dataPtr->lastControllerUpdateTime).count());
-      this->SendState();
+      this->SendState(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime).count());
     }
   }
 
   this->dataPtr->lastControllerUpdateTime = _info.simTime;
-}
-
-void ignition::gazebo::systems::ArduPilotPlugin::PostUpdate(const ignition::gazebo::UpdateInfo &/*_info*/,
-                                                            const ignition::gazebo::EntityComponentManager &/*_ecm*/)
-{
 }
 
 /////////////////////////////////////////////////
@@ -923,18 +918,19 @@ bool ignition::gazebo::systems::ArduPilotPlugin::InitArduPilotSockets(const std:
 }
 
 /////////////////////////////////////////////////
-void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(const double _dt)
+void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(const double /*_dt*/)
 {
   // update velocity PID for controls and apply force to joint
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
   {
+	    /*
     if (this->dataPtr->controls[i].useForce)
     {
       if (this->dataPtr->controls[i].type == "VELOCITY")
       {
         const double velTarget = this->dataPtr->controls[i].cmd /
           this->dataPtr->controls[i].rotorVelocitySlowdownSim;
-        const double vel = this->dataPtr->controls[i].joint.GetVelocity(0);
+        const double vel = this->dataPtr->controls[i].joint->GetVelocity(0);
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, _dt);
         this->dataPtr->controls[i].joint->SetForce(0, force);
@@ -977,6 +973,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(const double _
         // do nothing
       }
     }
+      */
   }
 }
 
@@ -1034,7 +1031,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
   {
     // didn't receive a packet
     // igndbg << "no packet\n";
-    gazebo::common::Time::NSleep(100);
+    ignition::common::Time::Sleep(ignition::common::Time(0,100));
     if (this->dataPtr->arduPilotOnline)
     {
       ignwarn << "[" << this->dataPtr->modelName << "] "
@@ -1122,12 +1119,12 @@ void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
 }
 
 /////////////////////////////////////////////////
-void ignition::gazebo::systems::ArduPilotPlugin::SendState() const
+void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) const
 {
   // send_fdm
   fdmPacket pkt;
 
-  pkt.timestamp = this->dataPtr->model->GetWorld()->SimTime().Double();
+  pkt.timestamp = _simTime;
 
   // asssumed that the imu orientation is:
   //   x forward
@@ -1175,6 +1172,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState() const
   // adding modelXYZToAirplaneXForwardZDown rotates
   //   from: model XYZ
   //   to: airplane x-forward, y-left, z-down
+  /*
   const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
     this->modelXYZToAirplaneXForwardZDown +
     this->dataPtr->model->WorldPose();
@@ -1216,6 +1214,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState() const
   pkt.velocityXYZ[0] = velNEDFrame.X();
   pkt.velocityXYZ[1] = velNEDFrame.Y();
   pkt.velocityXYZ[2] = velNEDFrame.Z();
+  */
 /* NOT MERGED IN MASTER YET
   if (!this->dataPtr->gpsSensor)
     {
@@ -1244,10 +1243,10 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState() const
 }
 
 // Register plugin
-IGNITION_ADD_PLUGIN(ArduPilotPlugin,
+IGNITION_ADD_PLUGIN(ignition::gazebo::systems::ArduPilotPlugin,
                     ignition::gazebo::System,
-                    ArduPilotPlugin::ISystemConfigure,
-                    ArduPilotPlugin::ISystemPreUpdate)
+                    ignition::gazebo::systems::ArduPilotPlugin::ISystemConfigure,
+                    ignition::gazebo::systems::ArduPilotPlugin::ISystemPreUpdate)
 // Add plugin alias so that we can refer to the plugin without the version
 // namespace
 IGNITION_ADD_PLUGIN_ALIAS(ArduPilotPlugin,"ignition::gazebo::systems::ArduPilotPlugin")
