@@ -17,15 +17,13 @@
 #ifndef GAZEBO_PLUGINS_ARDUPILOTPLUGIN_HH_
 #define GAZEBO_PLUGINS_ARDUPILOTPLUGIN_HH_
 
-#include <sdf/sdf.hh>
-#include <ignition/common.hh>
-#include <ignition/physics.hh>
-
-#include <ignition/gazebo/Model.hh>
-#include <ignition/gazebo/Util.hh>
 #include <ignition/gazebo/System.hh>
 
+namespace ignition
+{
 namespace gazebo
+{
+namespace systems
 {
   // Forward declare private data class
   class ArduPilotSocketPrivate;
@@ -56,24 +54,28 @@ namespace gazebo
   /// <imuName>     scoped name for the imu sensor
   /// <connectionTimeoutMaxCount> timeout before giving up on
   ///                             controller synchronization
-  class ArduPilotPlugin : public ignition::gazebo::System, public ignition::gazebo::ISystemConfigure, public ignition::gazebo::ISystemPostUpdate
+  class ArduPilotPlugin:
+	  public ignition::gazebo::System,
+	  public ignition::gazebo::ISystemConfigure,
+	  public ignition::gazebo::ISystemPostUpdate,
+	  public ignition::gazebo::ISystemPreUpdate
   {
     /// \brief Constructor.
-    public: ArduPilotPlugin();
+    public: explicit ArduPilotPlugin();
 
     /// \brief Destructor.
-    public: ~ArduPilotPlugin();
+    public: ~ArduPilotPlugin() override;
 
-    // Documentation Inherited.
-    //public: virtual void Load(physics::ModelPtr _model, sdf::ElementPtr _sdf);
-    public: virtual void Configure(const ignition::gazebo::Entity &_entity,
+    public: void Configure(const ignition::gazebo::Entity &_entity,
       const std::shared_ptr<const sdf::Element> &_sdf,
       ignition::gazebo::EntityComponentManager &_ecm,
       ignition::gazebo::EventManager &/*_eventMgr*/);
 
-    /// \brief Update the control surfaces controllers.
-    /// \param[in] _info Update information provided by the server.
-    private: void OnUpdate();
+    public: void PreUpdate(const ignition::gazebo::UpdateInfo &_info,
+                           const ignition::gazebo::EntityComponentManager &_ecm);
+
+    public: void PostUpdate(const ignition::gazebo::UpdateInfo &_info,
+                            const ignition::gazebo::EntityComponentManager &_ecm);
 
     /// \brief Update PID Joint controllers.
     /// \param[in] _dt time step size since last update.
@@ -89,7 +91,7 @@ namespace gazebo
     private: void SendState() const;
 
     /// \brief Init ardupilot socket
-    private: bool InitArduPilotSockets(sdf::ElementPtr _sdf) const;
+    private: bool InitArduPilotSockets(const std::shared_ptr<const sdf::Element> &_sdf) const;
 
     /// \brief Private data pointer.
     private: std::unique_ptr<ArduPilotPluginPrivate> dataPtr;
@@ -100,5 +102,7 @@ namespace gazebo
     /// \brief transform from world frame to NED frame
     private: ignition::math::Pose3d gazeboXYZToNED;
   };
+}
+}
 }
 #endif

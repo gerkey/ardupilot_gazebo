@@ -27,6 +27,7 @@
   #include <netinet/in.h>
   #include <netinet/tcp.h>
   #include <arpa/inet.h>
+  #include <unistd.h>
   using raw_type = void;
 #endif
 
@@ -35,21 +36,38 @@
   typedef SSIZE_T ssize_t;
 #endif
 
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <sdf/sdf.hh>
-#include <ignition/math/Filter.hh>
+/*
 #include <sdf/Assert.hh>
 #include <ignition/common/Plugin.hh>
 #include <ignition/msgs.hh>
 #include <ignition/sensors.hh>
 #include <ignition/transport.hh>
+*/
+
 #include "include/ArduPilotPlugin.hh"
 
-#define MAX_MOTORS 255
+#include <ignition/gazebo/components/Imu.hh>
 
-using namespace gazebo;
+#include <ignition/gazebo/Model.hh>
+#include <ignition/gazebo/System.hh>
+#include <ignition/gazebo/Types.hh>
+#include <ignition/gazebo/Util.hh>
+
+#include <ignition/math/Filter.hh>
+#include <ignition/math/Helpers.hh>
+#include <ignition/math/Pose3.hh>
+#include <ignition/math/PID.hh>
+#include <ignition/math/Vector3.hh>
+
+#include <ignition/sensors/ImuSensor.hh>
+
+#include <sdf/sdf.hh>
+
+#define MAX_MOTORS 255
 
 //GZ_REGISTER_MODEL_PLUGIN(ArduPilotPlugin)
 
@@ -165,7 +183,7 @@ double Control::kDefaultFrequencyCutoff = 5.0;
 double Control::kDefaultSamplingRate = 0.2;
 
 // Private data class
-class gazebo::ArduPilotSocketPrivate
+class ignition::gazebo::systems::ArduPilotSocketPrivate
 {
   /// \brief constructor
   public: ArduPilotSocketPrivate()
@@ -311,13 +329,14 @@ class gazebo::ArduPilotSocketPrivate
 };
 
 // Private data class
-class gazebo::ArduPilotPluginPrivate
+class ignition::gazebo::systems::ArduPilotPluginPrivate
 {
   /// \brief Pointer to the update event connection.
   //public: event::ConnectionPtr updateConnection;
 
   /// \brief Pointer to the model;
-  public: ignition::gazebo::Entity model;
+  //public: ignition::gazebo::Entity model;
+  public: ignition::gazebo::Model model{ignition::gazebo::kNullEntity};
 
   /// \brief String of the model name;
   public: std::string modelName;
@@ -326,16 +345,16 @@ class gazebo::ArduPilotPluginPrivate
   public: std::vector<Control> controls;
 
   /// \brief keep track of controller update sim-time.
-  public: ignition::common::Time lastControllerUpdateTime;
+  public: std::chrono::steady_clock::duration lastControllerUpdateTime{0};
 
   /// \brief Controller update mutex.
   public: std::mutex mutex;
 
   /// \brief Ardupilot Socket for receive motor command on gazebo
-  public: ArduPilotSocketPrivate socket_in;
+  public: ignition::gazebo::systems::ArduPilotSocketPrivate socket_in;
 
   /// \brief Ardupilot Socket to send state to Ardupilot
-  public: ArduPilotSocketPrivate socket_out;
+  public: ignition::gazebo::systems::ArduPilotSocketPrivate socket_out;
 
   /// \brief Ardupilot address
   public: std::string fdm_addr;
@@ -350,7 +369,7 @@ class gazebo::ArduPilotPluginPrivate
   public: uint16_t fdm_port_out;
 
   /// \brief Pointer to an IMU sensor
-  public: ignition::sensors::ImuSensor imuSensor;
+  public: std::unique_ptr<ignition::sensors::ImuSensor> imuSensor;
   
   /// \brief Pointer to an GPS sensor
   //public: ignition::sensors::GpsSensor gpsSensor;
@@ -371,7 +390,7 @@ class gazebo::ArduPilotPluginPrivate
 };
 
 /////////////////////////////////////////////////
-ArduPilotPlugin::ArduPilotPlugin()
+ignition::gazebo::systems::ArduPilotPlugin::ArduPilotPlugin()
   : dataPtr(new ArduPilotPluginPrivate)
 {
   this->dataPtr->arduPilotOnline = false;
@@ -379,18 +398,27 @@ ArduPilotPlugin::ArduPilotPlugin()
 }
 
 /////////////////////////////////////////////////
-ArduPilotPlugin::~ArduPilotPlugin()
+ignition::gazebo::systems::ArduPilotPlugin::~ArduPilotPlugin()
 {
 }
 
 /////////////////////////////////////////////////
-void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
+//void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
+void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazebo::Entity &_entity,
+      const std::shared_ptr<const sdf::Element> &_sdf,
+      ignition::gazebo::EntityComponentManager &_ecm,
+      ignition::gazebo::EventManager &/*_eventMgr*/)
 {
-  GZ_ASSERT(_model, "ArduPilotPlugin _model pointer is null");
-  GZ_ASSERT(_sdf, "ArduPilotPlugin _sdf pointer is null");
+  this->dataPtr->model = Model(_entity);
 
-  this->dataPtr->model = _model;
-  this->dataPtr->modelName = this->dataPtr->model->GetName();
+  if (!this->dataPtr->model.Valid(_ecm))
+  {
+    ignerr << "ArduPilotPlugin should be attached to a model "
+      << "entity. Failed to initialize." << std::endl;
+    return;
+  }
+
+  this->dataPtr->modelName = this->dataPtr->model.Name(_ecm);
 
   // modelXYZToAirplaneXForwardZDown brings us from gazebo model frame:
   // x-forward, y-right, z-down
@@ -415,13 +443,13 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   sdf::ElementPtr controlSDF;
   if (_sdf->HasElement("control"))
   {
-    controlSDF = _sdf->GetElement("control");
+    controlSDF = _sdf->GetNextElement("control");
   }
   else if (_sdf->HasElement("rotor"))
   {
-    gzwarn << "[" << this->dataPtr->modelName << "] "
+    ignwarn << "[" << this->dataPtr->modelName << "] "
            << "please deprecate <rotor> block, use <control> block instead.\n";
-    controlSDF = _sdf->GetElement("rotor");
+    controlSDF = _sdf->GetNextElement("rotor");
   }
 
   while (controlSDF)
@@ -435,7 +463,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     }
     else if (controlSDF->HasAttribute("id"))
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              <<  "please deprecate attribute id, use channel instead.\n";
       control.channel =
         atoi(controlSDF->GetAttribute("id")->GetAsString().c_str());
@@ -443,7 +471,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     else
     {
       control.channel = this->dataPtr->controls.size();
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              <<  "id/channel attribute not specified, use order parsed ["
              << control.channel << "].\n";
     }
@@ -454,7 +482,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     }
     else
     {
-      gzerr << "[" << this->dataPtr->modelName << "] "
+      ignerr << "[" << this->dataPtr->modelName << "] "
             <<  "Control type not specified,"
             << " using velocity control by default.\n";
       control.type = "VELOCITY";
@@ -464,7 +492,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
         control.type != "POSITION" &&
         control.type != "EFFORT")
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "Control type [" << control.type
              << "] not recognized, must be one of VELOCITY, POSITION, EFFORT."
              << " default to VELOCITY.\n";
@@ -482,16 +510,17 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     }
     else
     {
-      gzerr << "[" << this->dataPtr->modelName << "] "
+      ignerr << "[" << this->dataPtr->modelName << "] "
             << "Please specify a jointName,"
             << " where the control channel is attached.\n";
     }
 
     // Get the pointer to the joint.
-    control.joint = _model->GetJoint(control.jointName);
-    if (control.joint == nullptr)
+    //control.joint = _model->GetJoint(control.jointName);
+    control.joint = this->dataPtr->model.JointByName(_ecm, control.jointName);
+    if (control.joint == ignition::gazebo::kNullEntity)
     {
-      gzerr << "[" << this->dataPtr->modelName << "] "
+      ignerr << "[" << this->dataPtr->modelName << "] "
             << "Couldn't find specified joint ["
             << control.jointName << "]. This plugin will not run.\n";
       return;
@@ -504,7 +533,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     }
     else if (controlSDF->HasElement("turningDirection"))
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "<turningDirection> is deprecated. Please use"
              << " <multiplier>. Map 'cw' to '-1' and 'ccw' to '1'.\n";
       std::string turningDirection = controlSDF->Get<std::string>(
@@ -520,14 +549,14 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
       }
       else
       {
-        gzdbg << "[" << this->dataPtr->modelName << "] "
+        igndbg << "[" << this->dataPtr->modelName << "] "
               << "not string, check turningDirection as float\n";
         control.multiplier = controlSDF->Get<double>("turningDirection");
       }
     }
     else
     {
-      gzdbg << "[" << this->dataPtr->modelName << "] "
+      igndbg << "[" << this->dataPtr->modelName << "] "
             << "<multiplier> (or deprecated <turningDirection>) not specified,"
             << " Default 1 (or deprecated <turningDirection> 'ccw').\n";
       control.multiplier = 1;
@@ -539,7 +568,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     }
     else
     {
-      gzdbg << "[" << this->dataPtr->modelName << "] "
+      igndbg << "[" << this->dataPtr->modelName << "] "
             << "<offset> not specified, default to 0.\n";
       control.offset = 0;
     }
@@ -549,7 +578,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
     if (ignition::math::equal(control.rotorVelocitySlowdownSim, 0.0))
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "control for joint [" << control.jointName
              << "] rotorVelocitySlowdownSim is zero,"
              << " assume no slowdown.\n";
@@ -573,47 +602,47 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     // Overload the PID parameters if they are available.
     double param;
     // carry over from ArduCopter plugin
-    param = controlSDF->Get("vel_p_gain", control.pid.GetPGain()).first;
+    param = controlSDF->Get("vel_p_gain", control.pid.PGain()).first;
     control.pid.SetPGain(param);
 
-    param = controlSDF->Get("vel_i_gain", control.pid.GetIGain()).first;
+    param = controlSDF->Get("vel_i_gain", control.pid.IGain()).first;
     control.pid.SetIGain(param);
 
-    param = controlSDF->Get("vel_d_gain", control.pid.GetDGain()).first;
+    param = controlSDF->Get("vel_d_gain", control.pid.DGain()).first;
     control.pid.SetDGain(param);
 
-    param = controlSDF->Get("vel_i_max", control.pid.GetIMax()).first;
+    param = controlSDF->Get("vel_i_max", control.pid.IMax()).first;
     control.pid.SetIMax(param);
 
-    param = controlSDF->Get("vel_i_min", control.pid.GetIMin()).first;
+    param = controlSDF->Get("vel_i_min", control.pid.IMin()).first;
     control.pid.SetIMin(param);
 
-    param = controlSDF->Get("vel_cmd_max", control.pid.GetCmdMax()).first;
+    param = controlSDF->Get("vel_cmd_max", control.pid.CmdMax()).first;
     control.pid.SetCmdMax(param);
 
-    param = controlSDF->Get("vel_cmd_min", control.pid.GetCmdMin()).first;
+    param = controlSDF->Get("vel_cmd_min", control.pid.CmdMin()).first;
     control.pid.SetCmdMin(param);
 
     // new params, overwrite old params if exist
-    param = controlSDF->Get("p_gain", control.pid.GetPGain()).first;
+    param = controlSDF->Get("p_gain", control.pid.PGain()).first;
     control.pid.SetPGain(param);
 
-    param = controlSDF->Get("i_gain", control.pid.GetIGain()).first;
+    param = controlSDF->Get("i_gain", control.pid.IGain()).first;
     control.pid.SetIGain(param);
 
-    param = controlSDF->Get("d_gain", control.pid.GetDGain()).first;
+    param = controlSDF->Get("d_gain", control.pid.DGain()).first;
     control.pid.SetDGain(param);
 
-    param = controlSDF->Get("i_max", control.pid.GetIMax()).first;
+    param = controlSDF->Get("i_max", control.pid.IMax()).first;
     control.pid.SetIMax(param);
 
-    param = controlSDF->Get("i_min", control.pid.GetIMin()).first;
+    param = controlSDF->Get("i_min", control.pid.IMin()).first;
     control.pid.SetIMin(param);
 
-    param = controlSDF->Get("cmd_max", control.pid.GetCmdMax()).first;
+    param = controlSDF->Get("cmd_max", control.pid.CmdMax()).first;
     control.pid.SetCmdMax(param);
 
-    param = controlSDF->Get("cmd_min", control.pid.GetCmdMin()).first;
+    param = controlSDF->Get("cmd_min", control.pid.CmdMin()).first;
     control.pid.SetCmdMin(param);
 
     // set pid initial command
@@ -624,33 +653,23 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   }
 
   // Get sensors
-  std::string imuName =
-    _sdf->Get("imuName", static_cast<std::string>("imu_sensor")).first;
-  std::vector<std::string> imuScopedName =
-    this->dataPtr->model->SensorScopedName(imuName);
-
-  if (imuScopedName.size() > 1)
+  if (_sdf->HasElement("imuName"))
   {
-    gzwarn << "[" << this->dataPtr->modelName << "] "
-           << "multiple names match [" << imuName << "] using first found"
-           << " name.\n";
-    for (unsigned k = 0; k < imuScopedName.size(); ++k)
-    {
-      gzwarn << "  sensor " << k << " [" << imuScopedName[k] << "].\n";
-    }
+    std::string imuName =
+      _sdf->Get("imuName", static_cast<std::string>("imu_sensor")).first;
+    std::string imuScopedName =
+      ignition::gazebo::removeParentScope(ignition::gazebo::scopedName(_entity, _ecm, "::", false), "::");
   }
 
-  if (imuScopedName.size() > 0)
-  {
-    this->dataPtr->imuSensor = std::dynamic_pointer_cast<sensors::ImuSensor>
+  /*
+  this->dataPtr->imuSensor = std::dynamic_pointer_cast<sensors::ImuSensor>
       (sensors::SensorManager::Instance()->GetSensor(imuScopedName[0]));
-  }
 
   if (!this->dataPtr->imuSensor)
   {
     if (imuScopedName.size() > 1)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "first imu_sensor scoped name [" << imuScopedName[0]
              << "] not found, trying the rest of the sensor names.\n";
       for (unsigned k = 1; k < imuScopedName.size(); ++k)
@@ -659,7 +678,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
           (sensors::SensorManager::Instance()->GetSensor(imuScopedName[k]));
         if (this->dataPtr->imuSensor)
         {
-          gzwarn << "found [" << imuScopedName[k] << "]\n";
+          ignwarn << "found [" << imuScopedName[k] << "]\n";
           break;
         }
       }
@@ -667,7 +686,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
     if (!this->dataPtr->imuSensor)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "imu_sensor scoped name [" << imuName
              << "] not found, trying unscoped name.\n" << "\n";
       // TODO: this fails for multi-nested models.
@@ -679,24 +698,25 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
     if (!this->dataPtr->imuSensor)
     {
-      gzerr << "[" << this->dataPtr->modelName << "] "
+      ignerr << "[" << this->dataPtr->modelName << "] "
             << "imu_sensor [" << imuName
             << "] not found, abort ArduPilot plugin.\n" << "\n";
       return;
     }
   }
+  */
 /* NOT MERGED IN MASTER YET
     // Get GPS
   std::string gpsName = _sdf->Get("imuName", static_cast<std::string>("gps_sensor")).first;
   std::vector<std::string> gpsScopedName = SensorScopedName(this->dataPtr->model, gpsName);
   if (gpsScopedName.size() > 1)
   {
-    gzwarn << "[" << this->dataPtr->modelName << "] "
+    ignwarn << "[" << this->dataPtr->modelName << "] "
            << "multiple names match [" << gpsName << "] using first found"
            << " name.\n";
     for (unsigned k = 0; k < gpsScopedName.size(); ++k)
     {
-      gzwarn << "  sensor " << k << " [" << gpsScopedName[k] << "].\n";
+      ignwarn << "  sensor " << k << " [" << gpsScopedName[k] << "].\n";
     }
   }
 
@@ -710,7 +730,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   {
     if (gpsScopedName.size() > 1)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "first gps_sensor scoped name [" << gpsScopedName[0]
              << "] not found, trying the rest of the sensor names.\n";
       for (unsigned k = 1; k < gpsScopedName.size(); ++k)
@@ -719,7 +739,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
           (sensors::SensorManager::Instance()->GetSensor(gpsScopedName[k]));
         if (this->dataPtr->gpsSensor)
         {
-          gzwarn << "found [" << gpsScopedName[k] << "]\n";
+          ignwarn << "found [" << gpsScopedName[k] << "]\n";
           break;
         }
       }
@@ -727,7 +747,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
     if (!this->dataPtr->gpsSensor)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "gps_sensor scoped name [" << gpsName
              << "] not found, trying unscoped name.\n" << "\n";
       this->dataPtr->gpsSensor = std::dynamic_pointer_cast<sensors::GpsSensor>
@@ -736,13 +756,13 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     
     if (!this->dataPtr->gpsSensor)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "gps [" << gpsName
              << "] not found, skipping gps support.\n" << "\n";
     }
     else
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "  found "  << " [" << gpsName << "].\n";
     }
   }
@@ -754,12 +774,12 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   std::vector<std::string> rangefinderScopedName = SensorScopedName(this->dataPtr->model, rangefinderName);
   if (rangefinderScopedName.size() > 1)
   {
-    gzwarn << "[" << this->dataPtr->modelName << "] "
+    ignwarn << "[" << this->dataPtr->modelName << "] "
            << "multiple names match [" << rangefinderName << "] using first found"
            << " name.\n";
     for (unsigned k = 0; k < rangefinderScopedName.size(); ++k)
     {
-      gzwarn << "  sensor " << k << " [" << rangefinderScopedName[k] << "].\n";
+      ignwarn << "  sensor " << k << " [" << rangefinderScopedName[k] << "].\n";
     }
   }
 
@@ -773,7 +793,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   {
     if (rangefinderScopedName.size() > 1)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "first rangefinder_sensor scoped name [" << rangefinderScopedName[0]
              << "] not found, trying the rest of the sensor names.\n";
       for (unsigned k = 1; k < rangefinderScopedName.size(); ++k)
@@ -782,7 +802,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
           (sensors::SensorManager::Instance()->GetSensor(rangefinderScopedName[k]));
         if (this->dataPtr->rangefinderSensor)
         {
-          gzwarn << "found [" << rangefinderScopedName[k] << "]\n";
+          ignwarn << "found [" << rangefinderScopedName[k] << "]\n";
           break;
         }
       }
@@ -790,7 +810,7 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
     if (!this->dataPtr->rangefinderSensor)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "rangefinder_sensor scoped name [" << rangefinderName
              << "] not found, trying unscoped name.\n" << "\n";
       /// TODO: this fails for multi-nested models.
@@ -801,19 +821,17 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     }
     if (!this->dataPtr->rangefinderSensor)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "ranfinder [" << rangefinderName
              << "] not found, skipping rangefinder support.\n" << "\n";
     }
     else
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "  found "  << " [" << rangefinderName << "].\n";
     }
   }
 */
-  // Controller time control.
-  this->dataPtr->lastControllerUpdateTime = 0;
 
   // Initialise ardupilot sockets
   if (!InitArduPilotSockets(_sdf))
@@ -827,38 +845,41 @@ void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 
   // Listen to the update event. This event is broadcast every simulation
   // iteration.
-  this->dataPtr->updateConnection = event::Events::ConnectWorldUpdateBegin(
-      std::bind(&ArduPilotPlugin::OnUpdate, this));
+  //this->dataPtr->updateConnection = event::Events::ConnectWorldUpdateBegin(
+      //std::bind(&ArduPilotPlugin::OnUpdate, this));
 
-  gzlog << "[" << this->dataPtr->modelName << "] "
+  ignlog << "[" << this->dataPtr->modelName << "] "
         << "ArduPilot ready to fly. The force will be with you" << std::endl;
 }
 
 /////////////////////////////////////////////////
-void ArduPilotPlugin::OnUpdate()
+void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
+                                                           const ignition::gazebo::EntityComponentManager &/*_ecm*/)
 {
   std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
 
-  const gazebo::common::Time curTime =
-    this->dataPtr->model->GetWorld()->SimTime();
-
   // Update the control surfaces and publish the new state.
-  if (curTime > this->dataPtr->lastControllerUpdateTime)
+  if (_info.simTime > this->dataPtr->lastControllerUpdateTime)
   {
     this->ReceiveMotorCommand();
     if (this->dataPtr->arduPilotOnline)
     {
-      this->ApplyMotorForces((curTime -
-        this->dataPtr->lastControllerUpdateTime).Double());
+      this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
+        this->dataPtr->lastControllerUpdateTime).count());
       this->SendState();
     }
   }
 
-  this->dataPtr->lastControllerUpdateTime = curTime;
+  this->dataPtr->lastControllerUpdateTime = _info.simTime;
+}
+
+void ignition::gazebo::systems::ArduPilotPlugin::PostUpdate(const ignition::gazebo::UpdateInfo &/*_info*/,
+                                                            const ignition::gazebo::EntityComponentManager &/*_ecm*/)
+{
 }
 
 /////////////////////////////////////////////////
-void ArduPilotPlugin::ResetPIDs()
+void ignition::gazebo::systems::ArduPilotPlugin::ResetPIDs()
 {
   // Reset velocity PID for controls
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
@@ -869,7 +890,7 @@ void ArduPilotPlugin::ResetPIDs()
 }
 
 /////////////////////////////////////////////////
-bool ArduPilotPlugin::InitArduPilotSockets(sdf::ElementPtr _sdf) const
+bool ignition::gazebo::systems::ArduPilotPlugin::InitArduPilotSockets(const std::shared_ptr<const sdf::Element> &_sdf) const
 {
   this->dataPtr->fdm_addr =
     _sdf->Get("fdm_addr", static_cast<std::string>("127.0.0.1")).first;
@@ -883,7 +904,7 @@ bool ArduPilotPlugin::InitArduPilotSockets(sdf::ElementPtr _sdf) const
   if (!this->dataPtr->socket_in.Bind(this->dataPtr->listen_addr.c_str(),
       this->dataPtr->fdm_port_in))
   {
-    gzerr << "[" << this->dataPtr->modelName << "] "
+    ignerr << "[" << this->dataPtr->modelName << "] "
           << "failed to bind with " << this->dataPtr->listen_addr
           << ":" << this->dataPtr->fdm_port_in << " aborting plugin.\n";
     return false;
@@ -892,7 +913,7 @@ bool ArduPilotPlugin::InitArduPilotSockets(sdf::ElementPtr _sdf) const
   if (!this->dataPtr->socket_out.Connect(this->dataPtr->fdm_addr.c_str(),
       this->dataPtr->fdm_port_out))
   {
-    gzerr << "[" << this->dataPtr->modelName << "] "
+    ignerr << "[" << this->dataPtr->modelName << "] "
           << "failed to bind with " << this->dataPtr->fdm_addr
           << ":" << this->dataPtr->fdm_port_out << " aborting plugin.\n";
     return false;
@@ -902,7 +923,7 @@ bool ArduPilotPlugin::InitArduPilotSockets(sdf::ElementPtr _sdf) const
 }
 
 /////////////////////////////////////////////////
-void ArduPilotPlugin::ApplyMotorForces(const double _dt)
+void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(const double _dt)
 {
   // update velocity PID for controls and apply force to joint
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
@@ -913,7 +934,7 @@ void ArduPilotPlugin::ApplyMotorForces(const double _dt)
       {
         const double velTarget = this->dataPtr->controls[i].cmd /
           this->dataPtr->controls[i].rotorVelocitySlowdownSim;
-        const double vel = this->dataPtr->controls[i].joint->GetVelocity(0);
+        const double vel = this->dataPtr->controls[i].joint.GetVelocity(0);
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, _dt);
         this->dataPtr->controls[i].joint->SetForce(0, force);
@@ -960,7 +981,7 @@ void ArduPilotPlugin::ApplyMotorForces(const double _dt)
 }
 
 /////////////////////////////////////////////////
-void ArduPilotPlugin::ReceiveMotorCommand()
+void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
 {
   // Added detection for whether ArduPilot is online or not.
   // If ArduPilot is detected (receive of fdm packet from someone),
@@ -1005,18 +1026,18 @@ void ArduPilotPlugin::ReceiveMotorCommand()
   }
   if (counter > 0)
   {
-    gzdbg << "[" << this->dataPtr->modelName << "] "
+    igndbg << "[" << this->dataPtr->modelName << "] "
           << "Drained n packets: " << counter << std::endl;
   }
 
   if (recvSize == -1)
   {
     // didn't receive a packet
-    // gzdbg << "no packet\n";
+    // igndbg << "no packet\n";
     gazebo::common::Time::NSleep(100);
     if (this->dataPtr->arduPilotOnline)
     {
-      gzwarn << "[" << this->dataPtr->modelName << "] "
+      ignwarn << "[" << this->dataPtr->modelName << "] "
              << "Broken ArduPilot connection, count ["
              << this->dataPtr->connectionTimeoutCount
              << "/" << this->dataPtr->connectionTimeoutMaxCount
@@ -1026,7 +1047,7 @@ void ArduPilotPlugin::ReceiveMotorCommand()
       {
         this->dataPtr->connectionTimeoutCount = 0;
         this->dataPtr->arduPilotOnline = false;
-        gzwarn << "[" << this->dataPtr->modelName << "] "
+        ignwarn << "[" << this->dataPtr->modelName << "] "
                << "Broken ArduPilot connection, resetting motor control.\n";
         this->ResetPIDs();
       }
@@ -1038,19 +1059,19 @@ void ArduPilotPlugin::ReceiveMotorCommand()
     sizeof(pkt.motorSpeed[0]) * this->dataPtr->controls.size();
     if (recvSize < expectedPktSize)
     {
-      gzerr << "[" << this->dataPtr->modelName << "] "
+      ignerr << "[" << this->dataPtr->modelName << "] "
             << "got less than model needs. Got: " << recvSize
             << "commands, expected size: " << expectedPktSize << "\n";
     }
     const ssize_t recvChannels = recvSize / sizeof(pkt.motorSpeed[0]);
     // for(unsigned int i = 0; i < recvChannels; ++i)
     // {
-    //   gzdbg << "servo_command [" << i << "]: " << pkt.motorSpeed[i] << "\n";
+    //   igndbg << "servo_command [" << i << "]: " << pkt.motorSpeed[i] << "\n";
     // }
 
     if (!this->dataPtr->arduPilotOnline)
     {
-      gzdbg << "[" << this->dataPtr->modelName << "] "
+      igndbg << "[" << this->dataPtr->modelName << "] "
             << "ArduPilot controller online detected.\n";
       // made connection, set some flags
       this->dataPtr->connectionTimeoutCount = 0;
@@ -1071,7 +1092,7 @@ void ArduPilotPlugin::ReceiveMotorCommand()
           this->dataPtr->controls[i].cmd =
             this->dataPtr->controls[i].multiplier *
             (this->dataPtr->controls[i].offset + cmd);
-          // gzdbg << "apply input chan[" << this->dataPtr->controls[i].channel
+          // igndbg << "apply input chan[" << this->dataPtr->controls[i].channel
           //       << "] to control chan[" << i
           //       << "] with joint name ["
           //       << this->dataPtr->controls[i].jointName
@@ -1082,7 +1103,7 @@ void ArduPilotPlugin::ReceiveMotorCommand()
         }
         else
         {
-          gzerr << "[" << this->dataPtr->modelName << "] "
+          ignerr << "[" << this->dataPtr->modelName << "] "
                 << "control[" << i << "] channel ["
                 << this->dataPtr->controls[i].channel
                 << "] is greater than incoming commands size["
@@ -1092,7 +1113,7 @@ void ArduPilotPlugin::ReceiveMotorCommand()
       }
       else
       {
-        gzerr << "[" << this->dataPtr->modelName << "] "
+        ignerr << "[" << this->dataPtr->modelName << "] "
               << "too many motors, skipping [" << i
               << " > " << MAX_MOTORS << "].\n";
       }
@@ -1101,7 +1122,7 @@ void ArduPilotPlugin::ReceiveMotorCommand()
 }
 
 /////////////////////////////////////////////////
-void ArduPilotPlugin::SendState() const
+void ignition::gazebo::systems::ArduPilotPlugin::SendState() const
 {
   // send_fdm
   fdmPacket pkt;
@@ -1121,7 +1142,7 @@ void ArduPilotPlugin::SendState() const
   pkt.imuLinearAccelerationXYZ[0] = linearAccel.X();
   pkt.imuLinearAccelerationXYZ[1] = linearAccel.Y();
   pkt.imuLinearAccelerationXYZ[2] = linearAccel.Z();
-  // gzerr << "lin accel [" << linearAccel << "]\n";
+  // ignerr << "lin accel [" << linearAccel << "]\n";
 
   // get angular velocity in body frame
   const ignition::math::Vector3d angularVel =
@@ -1162,7 +1183,7 @@ void ArduPilotPlugin::SendState() const
   const ignition::math::Pose3d NEDToModelXForwardZUp =
     gazeboXYZToModelXForwardZDown - this->gazeboXYZToNED;
 
-  // gzerr << "ned to model [" << NEDToModelXForwardZUp << "]\n";
+  // ignerr << "ned to model [" << NEDToModelXForwardZUp << "]\n";
 
   // N
   pkt.positionXYZ[0] = NEDToModelXForwardZUp.Pos().X();
@@ -1180,10 +1201,10 @@ void ArduPilotPlugin::SendState() const
   pkt.imuOrientationQuat[2] = NEDToModelXForwardZUp.Rot().Y();
   pkt.imuOrientationQuat[3] = NEDToModelXForwardZUp.Rot().Z();
 
-  // gzdbg << "imu [" << gazeboXYZToModelXForwardZDown.rot.GetAsEuler()
+  // igndbg << "imu [" << gazeboXYZToModelXForwardZDown.rot.GetAsEuler()
   //       << "]\n";
-  // gzdbg << "ned [" << this->gazeboXYZToNED.rot.GetAsEuler() << "]\n";
-  // gzdbg << "rot [" << NEDToModelXForwardZUp.rot.GetAsEuler() << "]\n";
+  // igndbg << "ned [" << this->gazeboXYZToNED.rot.GetAsEuler() << "]\n";
+  // igndbg << "rot [" << NEDToModelXForwardZUp.rot.GetAsEuler() << "]\n";
 
   // Get NED velocity in body frame *
   // or...
@@ -1222,11 +1243,11 @@ void ArduPilotPlugin::SendState() const
   this->dataPtr->socket_out.Send(&pkt, sizeof(pkt));
 }
 
-/ Register plugin
+// Register plugin
 IGNITION_ADD_PLUGIN(ArduPilotPlugin,
                     ignition::gazebo::System,
                     ArduPilotPlugin::ISystemConfigure,
-                    ArduPilotPlugin::ISystemPostUpdate)
+                    ArduPilotPlugin::ISystemPreUpdate)
 // Add plugin alias so that we can refer to the plugin without the version
 // namespace
 IGNITION_ADD_PLUGIN_ALIAS(ArduPilotPlugin,"ignition::gazebo::systems::ArduPilotPlugin")
