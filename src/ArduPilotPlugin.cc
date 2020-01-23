@@ -55,6 +55,8 @@
 #include <ignition/gazebo/components/JointVelocity.hh>
 #include <ignition/gazebo/components/JointVelocityCmd.hh>
 #include <ignition/gazebo/components/LinearAcceleration.hh>
+#include <ignition/gazebo/components/LinearVelocity.hh>
+#include <ignition/gazebo/components/Name.hh>
 #include <ignition/gazebo/components/Pose.hh>
 
 #include <ignition/gazebo/Model.hh>
@@ -340,7 +342,7 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
   //public: event::ConnectionPtr updateConnection;
 
   /// \brief Pointer to the model;
-  //public: ignition::gazebo::Entity model;
+  public: ignition::gazebo::Entity entity{ignition::gazebo::kNullEntity};
   public: ignition::gazebo::Model model{ignition::gazebo::kNullEntity};
 
   /// \brief String of the model name;
@@ -375,6 +377,7 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
 
   /// \brief Pointer to an IMU sensor
   //public: std::unique_ptr<ignition::sensors::ImuSensor> imuSensor;
+  public: ignition::gazebo::Entity imu;
   
   /// \brief Pointer to an GPS sensor
   //public: ignition::sensors::GpsSensor gpsSensor;
@@ -414,6 +417,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
       ignition::gazebo::EntityComponentManager &_ecm,
       ignition::gazebo::EventManager &/*_eventMgr*/)
 {
+  this->dataPtr->entity = _entity;
   this->dataPtr->model = Model(_entity);
 
   if (!this->dataPtr->model.Valid(_ecm))
@@ -658,13 +662,19 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
   }
 
   // Get sensors
-  if (_sdf->HasElement("imuName"))
+  std::string imuName =
+    _sdf->Get("imuName", static_cast<std::string>("imu_sensor")).first;
+  std::string imuScopedName =
+    ignition::gazebo::removeParentScope(ignition::gazebo::scopedName(_entity, _ecm, "::", false), "::");
+  this->dataPtr->imu = _ecm.EntityByComponents(ignition::gazebo::components::Name(imuScopedName),
+		  ignition::gazebo::components::AngularVelocity(),
+		  ignition::gazebo::components::LinearAcceleration());
+  if(this->dataPtr->imu == ignition::gazebo::kNullEntity)
   {
-    std::string imuName =
-      _sdf->Get("imuName", static_cast<std::string>("imu_sensor")).first;
-    std::string imuScopedName =
-      ignition::gazebo::removeParentScope(ignition::gazebo::scopedName(_entity, _ecm, "::", false), "::");
-
+    ignerr << "[" << this->dataPtr->modelName << "] "
+          << "imu_sensor [" << imuScopedName
+          << "] not found, abort ArduPilot plugin." << "\n";
+    return;
   }
 
   /*
@@ -872,7 +882,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
     {
       this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
         this->dataPtr->lastControllerUpdateTime).count(), _ecm);
-      this->SendState(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime).count());
+      this->SendState(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime).count(),
+		      _ecm);
     }
   }
 
@@ -1162,7 +1173,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
 }
 
 /////////////////////////////////////////////////
-void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) const
+void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
+      ignition::gazebo::EntityComponentManager &_ecm) const
 {
   // send_fdm
   fdmPacket pkt;
@@ -1173,10 +1185,10 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) cons
   //   x forward
   //   y right
   //   z down
-/*
   // get linear acceleration in body frame
-  const ignition::math::Vector3d linearAccel =
-    this->dataPtr->imuSensor->LinearAcceleration();
+  auto la_comp = _ecm.Component<ignition::gazebo::components::LinearAcceleration>(this->dataPtr->imu);
+  const ignition::math::Vector3d linearAccel = la_comp->Data();
+    //this->dataPtr->imuSensor->LinearAcceleration();
 
   // copy to pkt
   pkt.imuLinearAccelerationXYZ[0] = linearAccel.X();
@@ -1185,14 +1197,15 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) cons
   // ignerr << "lin accel [" << linearAccel << "]\n";
 
   // get angular velocity in body frame
-  const ignition::math::Vector3d angularVel =
-    this->dataPtr->imuSensor->AngularVelocity();
+  auto av_comp = _ecm.Component<ignition::gazebo::components::AngularVelocity>(this->dataPtr->imu);
+  const ignition::math::Vector3d angularVel = av_comp->Data();
+    //this->dataPtr->imuSensor->AngularVelocity();
 
   // copy to pkt
   pkt.imuAngularVelocityRPY[0] = angularVel.X();
   pkt.imuAngularVelocityRPY[1] = angularVel.Y();
   pkt.imuAngularVelocityRPY[2] = angularVel.Z();
-*/
+ 
   // get inertial pose and velocity
   // position of the uav in world frame
   // this position is used to calcualte bearing and distance
@@ -1215,10 +1228,11 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) cons
   // adding modelXYZToAirplaneXForwardZDown rotates
   //   from: model XYZ
   //   to: airplane x-forward, y-left, z-down
-  /*
+  auto p_comp = _ecm.Component<ignition::gazebo::components::Pose>(this->dataPtr->entity);
   const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
     this->modelXYZToAirplaneXForwardZDown +
-    this->dataPtr->model->WorldPose();
+    p_comp->Data();
+    //this->dataPtr->model->WorldPose();
 
   // get transform from world NED to Model frame
   const ignition::math::Pose3d NEDToModelXForwardZUp =
@@ -1250,14 +1264,14 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) cons
   // Get NED velocity in body frame *
   // or...
   // Get model velocity in NED frame
-  const ignition::math::Vector3d velGazeboWorldFrame =
-    this->dataPtr->model->GetLink()->WorldLinearVel();
+  auto v_comp = _ecm.Component<ignition::gazebo::components::LinearVelocity>(this->dataPtr->entity);
+  const ignition::math::Vector3d velGazeboWorldFrame = v_comp->Data();
+    //this->dataPtr->model->GetLink()->WorldLinearVel();
   const ignition::math::Vector3d velNEDFrame =
     this->gazeboXYZToNED.Rot().RotateVectorReverse(velGazeboWorldFrame);
   pkt.velocityXYZ[0] = velNEDFrame.X();
   pkt.velocityXYZ[1] = velNEDFrame.Y();
   pkt.velocityXYZ[2] = velNEDFrame.Z();
-  */
 /* NOT MERGED IN MASTER YET
   if (!this->dataPtr->gpsSensor)
     {

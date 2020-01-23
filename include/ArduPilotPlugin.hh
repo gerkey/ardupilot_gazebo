@@ -86,7 +86,7 @@ namespace systems
     private: void ReceiveMotorCommand();
 
     /// \brief Send state to ArduPilot
-    private: void SendState(double _simTime) const;
+    private: void SendState(double _simTime, ignition::gazebo::EntityComponentManager &_ecm) const;
 
     /// \brief Init ardupilot socket
     private: bool InitArduPilotSockets(const std::shared_ptr<const sdf::Element> &_sdf) const;
