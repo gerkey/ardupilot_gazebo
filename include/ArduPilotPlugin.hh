@@ -68,10 +68,11 @@ namespace systems
     public: void Configure(const ignition::gazebo::Entity &_entity,
       const std::shared_ptr<const sdf::Element> &_sdf,
       ignition::gazebo::EntityComponentManager &_ecm,
-      ignition::gazebo::EventManager &/*_eventMgr*/);
+      ignition::gazebo::EventManager &_eventMgr) final;
 
     public: void PreUpdate(const ignition::gazebo::UpdateInfo &_info,
-                           const ignition::gazebo::EntityComponentManager &_ecm);
+                           ignition::gazebo::EntityComponentManager &_ecm) final;
+
 
     /// \brief Update PID Joint controllers.
     /// \param[in] _dt time step size since last update.

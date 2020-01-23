@@ -1,5 +1,4 @@
-/*
- * Copyright (C) 2016 Open Source Robotics Foundation
+/* * Copyright (C) 2016 Open Source Robotics Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,6 +61,8 @@
 #include <ignition/math/Pose3.hh>
 #include <ignition/math/PID.hh>
 #include <ignition/math/Vector3.hh>
+
+#include <ignition/plugin/Register.hh>
 
 #include <ignition/sensors/ImuSensor.hh>
 
@@ -854,7 +855,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
 
 /////////////////////////////////////////////////
 void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
-                                                           const ignition::gazebo::EntityComponentManager &/*_ecm*/)
+                                                           ignition::gazebo::EntityComponentManager &/*_ecm*/)
 {
   std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
 
@@ -891,10 +892,11 @@ bool ignition::gazebo::systems::ArduPilotPlugin::InitArduPilotSockets(const std:
     _sdf->Get("fdm_addr", static_cast<std::string>("127.0.0.1")).first;
   this->dataPtr->listen_addr =
     _sdf->Get("listen_addr", static_cast<std::string>("127.0.0.1")).first;
+  this->dataPtr->fdm_port_in = 9002;
   this->dataPtr->fdm_port_in =
-    _sdf->Get("fdm_port_in", static_cast<uint16_t>(9002)).first;
+    static_cast<uint16_t>(_sdf->Get("fdm_port_in", static_cast<uint64_t>(9002)).first);
   this->dataPtr->fdm_port_out =
-    _sdf->Get("fdm_port_out", static_cast<uint16_t>(9003)).first;
+    static_cast<uint16_t>(_sdf->Get("fdm_port_out", static_cast<uint64_t>(9003)).first);
 
   if (!this->dataPtr->socket_in.Bind(this->dataPtr->listen_addr.c_str(),
       this->dataPtr->fdm_port_in))
@@ -1249,4 +1251,4 @@ IGNITION_ADD_PLUGIN(ignition::gazebo::systems::ArduPilotPlugin,
                     ignition::gazebo::systems::ArduPilotPlugin::ISystemPreUpdate)
 // Add plugin alias so that we can refer to the plugin without the version
 // namespace
-IGNITION_ADD_PLUGIN_ALIAS(ArduPilotPlugin,"ignition::gazebo::systems::ArduPilotPlugin")
+IGNITION_ADD_PLUGIN_ALIAS(ignition::gazebo::systems::ArduPilotPlugin,"ArduPilotPlugin")
