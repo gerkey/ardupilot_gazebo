@@ -49,7 +49,13 @@
 
 #include "include/ArduPilotPlugin.hh"
 
-#include <ignition/gazebo/components/Imu.hh>
+#include <ignition/gazebo/components/AngularVelocity.hh>
+#include <ignition/gazebo/components/JointForceCmd.hh>
+#include <ignition/gazebo/components/JointPosition.hh>
+#include <ignition/gazebo/components/JointVelocity.hh>
+#include <ignition/gazebo/components/JointVelocityCmd.hh>
+#include <ignition/gazebo/components/LinearAcceleration.hh>
+#include <ignition/gazebo/components/Pose.hh>
 
 #include <ignition/gazebo/Model.hh>
 #include <ignition/gazebo/System.hh>
@@ -63,8 +69,6 @@
 #include <ignition/math/Vector3.hh>
 
 #include <ignition/plugin/Register.hh>
-
-#include <ignition/sensors/ImuSensor.hh>
 
 #include <sdf/sdf.hh>
 
@@ -370,7 +374,7 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
   public: uint16_t fdm_port_out;
 
   /// \brief Pointer to an IMU sensor
-  public: std::unique_ptr<ignition::sensors::ImuSensor> imuSensor;
+  //public: std::unique_ptr<ignition::sensors::ImuSensor> imuSensor;
   
   /// \brief Pointer to an GPS sensor
   //public: ignition::sensors::GpsSensor gpsSensor;
@@ -660,6 +664,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
       _sdf->Get("imuName", static_cast<std::string>("imu_sensor")).first;
     std::string imuScopedName =
       ignition::gazebo::removeParentScope(ignition::gazebo::scopedName(_entity, _ecm, "::", false), "::");
+
   }
 
   /*
@@ -855,7 +860,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
 
 /////////////////////////////////////////////////
 void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
-                                                           ignition::gazebo::EntityComponentManager &/*_ecm*/)
+                                                           ignition::gazebo::EntityComponentManager &_ecm)
 {
   std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
 
@@ -866,7 +871,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
     if (this->dataPtr->arduPilotOnline)
     {
       this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
-        this->dataPtr->lastControllerUpdateTime).count());
+        this->dataPtr->lastControllerUpdateTime).count(), _ecm);
       this->SendState(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime).count());
     }
   }
@@ -920,35 +925,67 @@ bool ignition::gazebo::systems::ArduPilotPlugin::InitArduPilotSockets(const std:
 }
 
 /////////////////////////////////////////////////
-void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(const double /*_dt*/)
+void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
+		const double _dt,
+		ignition::gazebo::EntityComponentManager &_ecm)
 {
   // update velocity PID for controls and apply force to joint
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
   {
-	    /*
+    
+    ignition::gazebo::components::JointForceCmd* jfc_comp = nullptr;
+    ignition::gazebo::components::JointVelocityCmd* jvc_comp = nullptr;
+    if (this->dataPtr->controls[i].useForce || this->dataPtr->controls[i].type == "EFFORT")
+    {
+      jfc_comp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(this->dataPtr->controls[i].joint);
+      if (jfc_comp == nullptr)
+      {
+        jfc_comp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
+			_ecm.CreateComponent(this->dataPtr->controls[i].joint,
+                                             components::JointForceCmd({0})));
+      }
+    }
+    else if (this->dataPtr->controls[i].type == "VELOCITY")
+    {
+      jvc_comp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(this->dataPtr->controls[i].joint);
+      if (jvc_comp == nullptr)
+      {
+        jvc_comp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(
+			_ecm.CreateComponent(this->dataPtr->controls[i].joint,
+				             components::JointVelocityCmd({0})));
+      }
+    }
+
     if (this->dataPtr->controls[i].useForce)
     {
       if (this->dataPtr->controls[i].type == "VELOCITY")
       {
         const double velTarget = this->dataPtr->controls[i].cmd /
           this->dataPtr->controls[i].rotorVelocitySlowdownSim;
-        const double vel = this->dataPtr->controls[i].joint->GetVelocity(0);
+        //const double vel = this->dataPtr->controls[i].joint->GetVelocity(0);
+        auto v_comp = _ecm.Component<ignition::gazebo::components::JointVelocity>(this->dataPtr->controls[i].joint);
+        const double vel = v_comp->Data()[0];
         const double error = vel - velTarget;
-        const double force = this->dataPtr->controls[i].pid.Update(error, _dt);
-        this->dataPtr->controls[i].joint->SetForce(0, force);
+        const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
+        //this->dataPtr->controls[i].joint->SetForce(0, force);
+	jfc_comp->Data()[0] = force;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
         const double posTarget = this->dataPtr->controls[i].cmd;
-        const double pos = this->dataPtr->controls[i].joint->Position();
+        //const double pos = this->dataPtr->controls[i].joint->Position();
+        auto p_comp = _ecm.Component<ignition::gazebo::components::JointPosition>(this->dataPtr->controls[i].joint);
+        const double pos = p_comp->Data()[0];
         const double error = pos - posTarget;
-        const double force = this->dataPtr->controls[i].pid.Update(error, _dt);
-        this->dataPtr->controls[i].joint->SetForce(0, force);
+        const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
+        //this->dataPtr->controls[i].joint->SetForce(0, force);
+	jfc_comp->Data()[0] = force;
       }
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
-        this->dataPtr->controls[i].joint->SetForce(0, force);
+        //this->dataPtr->controls[i].joint->SetForce(0, force);
+	jfc_comp->Data()[0] = force;
       }
       else
       {
@@ -959,23 +996,27 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(const double /
     {
       if (this->dataPtr->controls[i].type == "VELOCITY")
       {
-        this->dataPtr->controls[i].joint->SetVelocity(0, this->dataPtr->controls[i].cmd);
+        //this->dataPtr->controls[i].joint->SetVelocity(0, this->dataPtr->controls[i].cmd);
+	jvc_comp->Data()[0] = this->dataPtr->controls[i].cmd;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
-        this->dataPtr->controls[i].joint->SetPosition(0, this->dataPtr->controls[i].cmd);
+        //this->dataPtr->controls[i].joint->SetPosition(0, this->dataPtr->controls[i].cmd);
+	//TODO: figure out whether position control matters, and if so, how to use it.
+	ignwarn << "Failed to do position control on joint " << i << 
+		" because there's no JointPositionCmd component (yet?)" << std::endl;
       }
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
-        this->dataPtr->controls[i].joint->SetForce(0, force);
+        //this->dataPtr->controls[i].joint->SetForce(0, force);
+	jfc_comp->Data()[0] = force;
       }
       else
       {
         // do nothing
       }
     }
-      */
   }
 }
 
@@ -1132,7 +1173,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) cons
   //   x forward
   //   y right
   //   z down
-
+/*
   // get linear acceleration in body frame
   const ignition::math::Vector3d linearAccel =
     this->dataPtr->imuSensor->LinearAcceleration();
@@ -1151,7 +1192,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime) cons
   pkt.imuAngularVelocityRPY[0] = angularVel.X();
   pkt.imuAngularVelocityRPY[1] = angularVel.Y();
   pkt.imuAngularVelocityRPY[2] = angularVel.Z();
-
+*/
   // get inertial pose and velocity
   // position of the uav in world frame
   // this position is used to calcualte bearing and distance
