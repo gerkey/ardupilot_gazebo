@@ -44,13 +44,13 @@
       <visual name='base_link_visual'>
         <geometry>
           <mesh>
-            <uri>model://iris_with_standoffs/meshes/iris.dae</uri>
+            <uri>file:///home/gerkey/code/rse/ardupilot_gazebo/models/iris_with_standoffs/meshes/iris.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/DarkGrey</name>
-          </script>
+          </script-->
         </material>
       </visual>
 
@@ -63,10 +63,10 @@
           </cylinder>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/FlatBlack</name>
             <uri>file://media/materials/scripts/gazebo.material</uri>
-          </script>
+          </script-->
         </material>
       </visual>
       <visual name='front_right_leg_visual'>
@@ -78,10 +78,10 @@
           </cylinder>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/FlatBlack</name>
             <uri>file://media/materials/scripts/gazebo.material</uri>
-          </script>
+          </script-->
         </material>
       </visual>
       <visual name='rear_left_leg_visual'>
@@ -93,10 +93,10 @@
           </cylinder>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/FlatBlack</name>
             <uri>file://media/materials/scripts/gazebo.material</uri>
-          </script>
+          </script-->
         </material>
       </visual>
       <visual name='rear_right_leg_visual'>
@@ -108,10 +108,10 @@
           </cylinder>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/FlatBlack</name>
             <uri>file://media/materials/scripts/gazebo.material</uri>
-          </script>
+          </script-->
         </material>
       </visual>
     </link>
@@ -264,14 +264,14 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>model://iris_with_standoffs/meshes/iris_prop_ccw.dae</uri>
+            <uri>file:///home/gerkey/code/rse/ardupilot_gazebo/models/iris_with_standoffs/meshes/iris_prop_ccw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/Blue</name>
             <uri>__default__</uri>
-          </script>
+          </script-->
         </material>
       </visual>
       <gravity>1</gravity>
@@ -334,14 +334,14 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>model://iris_with_standoffs/meshes/iris_prop_ccw.dae</uri>
+            <uri>file:///home/gerkey/code/rse/ardupilot_gazebo/models/iris_with_standoffs/meshes/iris_prop_ccw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/DarkGrey</name>
             <uri>__default__</uri>
-          </script>
+          </script-->
         </material>
       </visual>
       <gravity>1</gravity>
@@ -404,14 +404,14 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>model://iris_with_standoffs/meshes/iris_prop_cw.dae</uri>
+            <uri>file:///home/gerkey/code/rse/ardupilot_gazebo/models/iris_with_standoffs/meshes/iris_prop_cw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/Blue</name>
             <uri>__default__</uri>
-          </script>
+          </script-->
         </material>
       </visual>
       <gravity>1</gravity>
@@ -474,14 +474,14 @@
         <geometry>
           <mesh>
             <scale>1 1 1</scale>
-            <uri>model://iris_with_standoffs/meshes/iris_prop_cw.dae</uri>
+            <uri>file:///home/gerkey/code/rse/ardupilot_gazebo/models/iris_with_standoffs/meshes/iris_prop_cw.dae</uri>
           </mesh>
         </geometry>
         <material>
-          <script>
+          <!--script>
             <name>Gazebo/DarkGrey</name>
             <uri>__default__</uri>
-          </script>
+          </script-->
         </material>
       </visual>
       <gravity>1</gravity>
@@ -509,5 +509,162 @@
       </physics>
     </joint>
     <static>0</static>
+
+    <!-- plugins -->
+    <plugin
+      filename="libignition-gazebo-joint-state-publisher-system.so"
+      name="ignition::gazebo::systems::JointStatePublisher"></plugin>
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_0</link_name>
+    </plugin>
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_0</link_name>
+    </plugin>
+
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_1</link_name>
+    </plugin>
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_1</link_name>
+    </plugin>
+
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_2</link_name>
+    </plugin>
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_2</link_name>
+    </plugin>
+
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_3</link_name>
+    </plugin>
+    <plugin name="ignition::gazebo::systems::LiftDrag" filename="libignition-gazebo3-lift-drag-system.so">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.00</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_3</link_name>
+    </plugin>
+
+    <plugin
+      filename="libignition-gazebo-apply-joint-force-system.so"
+      name="ignition::gazebo::systems::ApplyJointForce">
+      <joint_name>rotor_0_joint</joint_name>
+    </plugin>
+    <plugin
+      filename="libignition-gazebo-apply-joint-force-system.so"
+      name="ignition::gazebo::systems::ApplyJointForce">
+      <joint_name>rotor_1_joint</joint_name>
+    </plugin>
+    <plugin
+      filename="libignition-gazebo-apply-joint-force-system.so"
+      name="ignition::gazebo::systems::ApplyJointForce">
+      <joint_name>rotor_2_joint</joint_name>
+    </plugin>
+    <plugin
+      filename="libignition-gazebo-apply-joint-force-system.so"
+      name="ignition::gazebo::systems::ApplyJointForce">
+      <joint_name>rotor_3_joint</joint_name>
+    </plugin>
   </model>
 </sdf>
