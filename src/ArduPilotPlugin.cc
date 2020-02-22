@@ -39,17 +39,11 @@
 #include <mutex>
 #include <string>
 #include <vector>
-/*
-#include <sdf/Assert.hh>
-#include <ignition/common/Plugin.hh>
-#include <ignition/msgs.hh>
-#include <ignition/sensors.hh>
-#include <ignition/transport.hh>
-*/
 
 #include "include/ArduPilotPlugin.hh"
 
 #include <ignition/gazebo/components/AngularVelocity.hh>
+#include <ignition/gazebo/components/Imu.hh>
 #include <ignition/gazebo/components/JointForceCmd.hh>
 #include <ignition/gazebo/components/JointPosition.hh>
 #include <ignition/gazebo/components/JointVelocity.hh>
@@ -57,6 +51,7 @@
 #include <ignition/gazebo/components/LinearAcceleration.hh>
 #include <ignition/gazebo/components/LinearVelocity.hh>
 #include <ignition/gazebo/components/Name.hh>
+#include <ignition/gazebo/components/ParentEntity.hh>
 #include <ignition/gazebo/components/Pose.hh>
 
 #include <ignition/gazebo/Model.hh>
@@ -70,7 +65,11 @@
 #include <ignition/math/PID.hh>
 #include <ignition/math/Vector3.hh>
 
+#include <ignition/msgs/imu.pb.h>
+
 #include <ignition/plugin/Register.hh>
+
+#include <ignition/transport/Node.hh>
 
 #include <sdf/sdf.hh>
 
@@ -377,7 +376,14 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
 
   /// \brief Pointer to an IMU sensor
   //public: std::unique_ptr<ignition::sensors::ImuSensor> imuSensor;
-  public: ignition::gazebo::Entity imu;
+
+  public: bool imuInitialized{false};
+  public: std::string imuTopicName;
+  public: ignition::transport::Node node;
+  public: void imuCb(const ignition::msgs::IMU &_msg)
+  {
+    ignerr << "Got IMU data: " << _msg.DebugString() << std::endl;
+  }
   
   /// \brief Pointer to an GPS sensor
   //public: ignition::sensors::GpsSensor gpsSensor;
@@ -396,6 +402,7 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
   /// before marking ArduPilot offline
   public: int connectionTimeoutMaxCount;
 };
+
 
 /////////////////////////////////////////////////
 ignition::gazebo::systems::ArduPilotPlugin::ArduPilotPlugin()
@@ -418,7 +425,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
       ignition::gazebo::EventManager &/*_eventMgr*/)
 {
   this->dataPtr->entity = _entity;
-  this->dataPtr->model = Model(_entity);
+  this->dataPtr->model = ignition::gazebo::Model(_entity);
 
   // Make a clone so that we can call non-const methods
   auto sdfClone = _sdf->Clone();
@@ -664,19 +671,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
     controlSDF = controlSDF->GetNextElement("control");
   }
 
-  // Get sensors
-  std::string imuName =
-    sdfClone->Get("imuName", static_cast<std::string>("imu_sensor")).first;
-  this->dataPtr->imu = _ecm.EntityByComponents(ignition::gazebo::components::Name(imuName),
-		  ignition::gazebo::components::AngularVelocity(),
-		  ignition::gazebo::components::LinearAcceleration());
-  if(this->dataPtr->imu == ignition::gazebo::kNullEntity)
-  {
-    ignerr << "[" << this->dataPtr->modelName << "] "
-          << "imu_sensor [" << imuName
-          << "] not found, abort ArduPilot plugin." << "\n";
-    return;
-  }
 
   /*
   this->dataPtr->imuSensor = std::dynamic_pointer_cast<sensors::ImuSensor>
@@ -873,7 +867,59 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
 void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
                                                            ignition::gazebo::EntityComponentManager &_ecm)
 {
+  // This lookup is done in PreUpdate() because in Configure() it's not possible to get the fully qualified topic name we want
+  if(!this->dataPtr->imuInitialized)
+  {
+    // Set unconditionally because we're only going to try this once.
+    this->dataPtr->imuInitialized = true;
+    // TODO: use result from SDF (need to store from inside Configure())
+    std::string imuName("imu_sensor");
+    _ecm.Each<ignition::gazebo::components::Imu, ignition::gazebo::components::Name>(
+            [&](const ignition::gazebo::Entity &_imu_entity,
+                const ignition::gazebo::components::Imu * /*_imu*/,
+                const ignition::gazebo::components::Name *_name)->bool
+        {
+          if(_name->Data() == imuName)
+          {
+            // The parent of the imu is imu_link
+            ignition::gazebo::Entity parent = _ecm.ParentEntity(_imu_entity);
+            if(parent != ignition::gazebo::kNullEntity)
+            {
+              // The grandparent of the imu is the quad itself, which is where this plugin is attached
+              ignition::gazebo::Entity gparent = _ecm.ParentEntity(parent);
+              if(gparent != ignition::gazebo::kNullEntity)
+              {
+                ignition::gazebo::Model gparent_model(gparent);
+                ignerr << gparent_model.Name(_ecm) << " == " << this->dataPtr->modelName << std::endl;
+                if(gparent_model.Name(_ecm) == this->dataPtr->modelName)
+                {
+                  this->dataPtr->imuTopicName = ignition::gazebo::scopedName(_imu_entity, _ecm) + "/imu";
+                  igndbg << "Found IMU topic: " << this->dataPtr->imuTopicName << std::endl;
+                }
+              }
+            }
+          }
+          return true;
+        });
+    
+    if(this->dataPtr->imuTopicName.empty())
+    {
+      ignerr << "[" << this->dataPtr->modelName << "] "
+            << "imu_sensor [" << imuName
+            << "] not found, abort ArduPilot plugin." << "\n";
+      return;
+    }
+
+    this->dataPtr->node.Subscribe(this->dataPtr->imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
+  }
+}
+
+/////////////////////////////////////////////////
+void ignition::gazebo::systems::ArduPilotPlugin::PostUpdate(const ignition::gazebo::UpdateInfo &_info,
+                                                            const ignition::gazebo::EntityComponentManager &_ecm)
+{
   std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
+
 
   // Update the control surfaces and publish the new state.
   if (_info.simTime > this->dataPtr->lastControllerUpdateTime)
@@ -881,10 +927,10 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
     this->ReceiveMotorCommand();
     if (this->dataPtr->arduPilotOnline)
     {
-      this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
-        this->dataPtr->lastControllerUpdateTime).count(), _ecm);
+      //this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
+        //this->dataPtr->lastControllerUpdateTime).count(), _ecm);
       this->SendState(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime).count(),
-		      _ecm);
+              _ecm);
     }
   }
 
@@ -937,9 +983,10 @@ bool ignition::gazebo::systems::ArduPilotPlugin::InitArduPilotSockets(const std:
 }
 
 /////////////////////////////////////////////////
+#if 0
 void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
-		const double _dt,
-		ignition::gazebo::EntityComponentManager &_ecm)
+        const double _dt,
+        const ignition::gazebo::EntityComponentManager &_ecm)
 {
   // update velocity PID for controls and apply force to joint
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
@@ -953,7 +1000,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
       if (jfc_comp == nullptr)
       {
         jfc_comp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
-			_ecm.CreateComponent(this->dataPtr->controls[i].joint,
+            _ecm.CreateComponent(this->dataPtr->controls[i].joint,
                                              ignition::gazebo::components::JointForceCmd({0})));
       }
     }
@@ -963,8 +1010,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
       if (jvc_comp == nullptr)
       {
         jvc_comp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(
-			_ecm.CreateComponent(this->dataPtr->controls[i].joint,
-				             ignition::gazebo::components::JointVelocityCmd({0})));
+            _ecm.CreateComponent(this->dataPtr->controls[i].joint,
+                             ignition::gazebo::components::JointVelocityCmd({0})));
       }
     }
 
@@ -976,17 +1023,17 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
           this->dataPtr->controls[i].rotorVelocitySlowdownSim;
         //const double vel = this->dataPtr->controls[i].joint->GetVelocity(0);
         auto v_comp = _ecm.Component<ignition::gazebo::components::JointVelocity>(this->dataPtr->controls[i].joint);
-	if (v_comp->Data().empty())
-	{
+    if (v_comp->Data().empty())
+    {
           igndbg << "[" << this->dataPtr->modelName << "] "
               << "No JointVelocity data available for control [" << i << "]. Skipping this control." << std::endl;
-	  continue;
-	}
+      continue;
+    }
         const double vel = v_comp->Data()[0];
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
         //this->dataPtr->controls[i].joint->SetForce(0, force);
-	jfc_comp->Data()[0] = force;
+    jfc_comp->Data()[0] = force;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
@@ -997,13 +1044,13 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
         const double error = pos - posTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
         //this->dataPtr->controls[i].joint->SetForce(0, force);
-	jfc_comp->Data()[0] = force;
+    jfc_comp->Data()[0] = force;
       }
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
         //this->dataPtr->controls[i].joint->SetForce(0, force);
-	jfc_comp->Data()[0] = force;
+    jfc_comp->Data()[0] = force;
       }
       else
       {
@@ -1015,20 +1062,20 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
       if (this->dataPtr->controls[i].type == "VELOCITY")
       {
         //this->dataPtr->controls[i].joint->SetVelocity(0, this->dataPtr->controls[i].cmd);
-	jvc_comp->Data()[0] = this->dataPtr->controls[i].cmd;
+    jvc_comp->Data()[0] = this->dataPtr->controls[i].cmd;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
         //this->dataPtr->controls[i].joint->SetPosition(0, this->dataPtr->controls[i].cmd);
-	//TODO: figure out whether position control matters, and if so, how to use it.
-	ignwarn << "Failed to do position control on joint " << i << 
-		" because there's no JointPositionCmd component (yet?)" << std::endl;
+    //TODO: figure out whether position control matters, and if so, how to use it.
+    ignwarn << "Failed to do position control on joint " << i << 
+        " because there's no JointPositionCmd component (yet?)" << std::endl;
       }
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
         //this->dataPtr->controls[i].joint->SetForce(0, force);
-	jfc_comp->Data()[0] = force;
+    jfc_comp->Data()[0] = force;
       }
       else
       {
@@ -1037,6 +1084,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
     }
   }
 }
+
+#endif
 
 /////////////////////////////////////////////////
 void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
@@ -1181,12 +1230,14 @@ void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
 
 /////////////////////////////////////////////////
 void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
-      ignition::gazebo::EntityComponentManager &_ecm) const
+      const ignition::gazebo::EntityComponentManager &_ecm) const
 {
+#if 0
   // send_fdm
   fdmPacket pkt;
 
   pkt.timestamp = _simTime;
+  //ignerr << "timestamp [" << pkt.timestamp << "]\n";
 
   // asssumed that the imu orientation is:
   //   x forward
@@ -1201,7 +1252,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   pkt.imuLinearAccelerationXYZ[0] = linearAccel.X();
   pkt.imuLinearAccelerationXYZ[1] = linearAccel.Y();
   pkt.imuLinearAccelerationXYZ[2] = linearAccel.Z();
-  // ignerr << "lin accel [" << linearAccel << "]\n";
+  //ignerr << "lin accel [" << linearAccel << "]\n";
 
   // get angular velocity in body frame
   auto av_comp = _ecm.Component<ignition::gazebo::components::AngularVelocity>(this->dataPtr->imu);
@@ -1212,6 +1263,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   pkt.imuAngularVelocityRPY[0] = angularVel.X();
   pkt.imuAngularVelocityRPY[1] = angularVel.Y();
   pkt.imuAngularVelocityRPY[2] = angularVel.Z();
+  //ignerr << "ang vel [" << angularVel << "]\n";
  
   // get inertial pose and velocity
   // position of the uav in world frame
@@ -1262,6 +1314,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   pkt.imuOrientationQuat[1] = NEDToModelXForwardZUp.Rot().X();
   pkt.imuOrientationQuat[2] = NEDToModelXForwardZUp.Rot().Y();
   pkt.imuOrientationQuat[3] = NEDToModelXForwardZUp.Rot().Z();
+  //ignerr << "NEDToModelXForwardZUp [" << NEDToModelXForwardZUp << "]\n";
 
   // igndbg << "imu [" << gazeboXYZToModelXForwardZDown.rot.GetAsEuler()
   //       << "]\n";
@@ -1271,23 +1324,28 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // Get NED velocity in body frame *
   // or...
   // Get model velocity in NED frame
+  /*
   auto v_comp = _ecm.Component<ignition::gazebo::components::LinearVelocity>(this->dataPtr->entity);
   if (v_comp == nullptr)
   {
-    v_comp = _ecm.Component<ignition::gazebo::components::LinearVelocity>(
-		    _ecm.CreateComponent(this->dataPtr->entity,
-			    ignition::gazebo::components::LinearVelocity()));
+    //v_comp = _ecm.Component<ignition::gazebo::components::LinearVelocity>(
+            //_ecm.CreateComponent(this->dataPtr->entity,
+                //ignition::gazebo::components::LinearVelocity()));
     igndbg << "[" << this->dataPtr->modelName << "] "
            << "No LinearVelocity data available. Not sending state to ArduPilot." << std::endl;
     return;
   }
   const ignition::math::Vector3d velGazeboWorldFrame = v_comp->Data();
+  */
+  const ignition::math::Vector3d velGazeboWorldFrame;
+
     //this->dataPtr->model->GetLink()->WorldLinearVel();
   const ignition::math::Vector3d velNEDFrame =
     this->gazeboXYZToNED.Rot().RotateVectorReverse(velGazeboWorldFrame);
   pkt.velocityXYZ[0] = velNEDFrame.X();
   pkt.velocityXYZ[1] = velNEDFrame.Y();
   pkt.velocityXYZ[2] = velNEDFrame.Z();
+  //ignerr << "velNEDFrame [" << velNEDFrame << "]\n";
 /* NOT MERGED IN MASTER YET
   if (!this->dataPtr->gpsSensor)
     {
@@ -1312,13 +1370,23 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // airspeed :     wind = Vector3(environment.wind.x, environment.wind.y, environment.wind.z)
    // pkt.airspeed = (pkt.velocity - wind).length()
 */
+  printf("Sending fdmPacket:\n"
+          "%f [%f %f %f] [%f %f %f] [%f %f %f %f] [%f %f %f] [%f %f %f]\n",
+          pkt.timestamp,
+          pkt.imuAngularVelocityRPY[0], pkt.imuAngularVelocityRPY[1], pkt.imuAngularVelocityRPY[2],
+          pkt.imuLinearAccelerationXYZ[0], pkt.imuLinearAccelerationXYZ[1], pkt.imuLinearAccelerationXYZ[2],
+          pkt.imuOrientationQuat[0], pkt.imuOrientationQuat[1], pkt.imuOrientationQuat[2], pkt.imuOrientationQuat[3],
+          pkt.velocityXYZ[0], pkt.velocityXYZ[1], pkt.velocityXYZ[2],
+          pkt.positionXYZ[0], pkt.positionXYZ[1], pkt.positionXYZ[2]);
   this->dataPtr->socket_out.Send(&pkt, sizeof(pkt));
+#endif
 }
 
 // Register plugin
 IGNITION_ADD_PLUGIN(ignition::gazebo::systems::ArduPilotPlugin,
                     ignition::gazebo::System,
                     ignition::gazebo::systems::ArduPilotPlugin::ISystemConfigure,
+                    ignition::gazebo::systems::ArduPilotPlugin::ISystemPostUpdate,
                     ignition::gazebo::systems::ArduPilotPlugin::ISystemPreUpdate)
 // Add plugin alias so that we can refer to the plugin without the version
 // namespace

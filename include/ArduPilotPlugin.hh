@@ -57,6 +57,7 @@ namespace systems
   class IGNITION_GAZEBO_VISIBLE ArduPilotPlugin:
 	  public ignition::gazebo::System,
 	  public ignition::gazebo::ISystemConfigure,
+	  public ignition::gazebo::ISystemPostUpdate,
 	  public ignition::gazebo::ISystemPreUpdate
   {
     /// \brief Constructor.
@@ -70,14 +71,17 @@ namespace systems
       ignition::gazebo::EntityComponentManager &_ecm,
       ignition::gazebo::EventManager &_eventMgr) final;
 
+    public: void PostUpdate(const ignition::gazebo::UpdateInfo &_info,
+                            const ignition::gazebo::EntityComponentManager &_ecm) final;
+
     public: void PreUpdate(const ignition::gazebo::UpdateInfo &_info,
                            ignition::gazebo::EntityComponentManager &_ecm) final;
 
 
     /// \brief Update PID Joint controllers.
     /// \param[in] _dt time step size since last update.
-    private: void ApplyMotorForces(const double _dt,
-                                   ignition::gazebo::EntityComponentManager &_ecm);
+    //private: void ApplyMotorForces(const double _dt,
+                                   //const ignition::gazebo::EntityComponentManager &_ecm);
 
     /// \brief Reset PID Joint controllers.
     private: void ResetPIDs();
@@ -86,7 +90,7 @@ namespace systems
     private: void ReceiveMotorCommand();
 
     /// \brief Send state to ArduPilot
-    private: void SendState(double _simTime, ignition::gazebo::EntityComponentManager &_ecm) const;
+    private: void SendState(double _simTime, const ignition::gazebo::EntityComponentManager &_ecm) const;
 
     /// \brief Init ardupilot socket
     private: bool InitArduPilotSockets(const std::shared_ptr<const sdf::Element> &_sdf) const;
