@@ -144,33 +144,32 @@ Build and install:
 1. Build ArduPilot from source following [instructions](https://ardupilot.org/dev/docs/building-setup-linux.html#building-setup-linux). Assume that build happens in `~/ardupilot`.
 1. Build Ignition Citadel from source following [instructions](https://ignitionrobotics.org/docs/citadel/install_ubuntu_src). Assume that resulting installation goes to `~/ign/install`.
 1. Clone this repo, source the Ignition paths, and then build ardupilot_gazebo:
-````
-. ~/ign/install
-mkdir build
-cd build
-cmake ..
-make
-````
+
+        . ~/ign/install
+        mkdir build
+        cd build
+        cmake ..
+        make
+    
 1. Copy the resulting shared object to a place where Ignition will find it (to be made unnecessary by future changes in Ignition's path handling):
-````
-cp libArduPilotPlugin.so ~/ign/install/lib/ign-gazebo-3/plugins/
-````
+
+        cp libArduPilotPlugin.so ~/ign/install/lib/ign-gazebo-3/plugins/
+
 
 Run:
 
-````
 1. Start simulation (run from your `ardupilot_gazebo` checkout):
-````
-. ~/ign/install/setup.bash
-ign gazebo -r worlds/iris_arducopter_runway.world
-````
+
+        . ~/ign/install/setup.bash
+        ign gazebo -r worlds/iris_arducopter_runway.world
+
 1. In another terminal, start ArduCopter:
-````
-cd ~/ardupilot/ArduCopter
-sim_vehicle.py -v ArduCopter -f gazebo-iris --map --console
-````
+
+        cd ~/ardupilot/ArduCopter
+        sim_vehicle.py -v ArduCopter -f gazebo-iris --map --console
+
 1. In another terminal, start QGC
-````
-~/QGroundControl.AppImage
-````
+
+        ~/QGroundControl.AppImage
+
 1. Arm, launch, etc...

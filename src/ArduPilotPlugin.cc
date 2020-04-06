@@ -343,6 +343,7 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
   /// \brief Pointer to the model;
   public: ignition::gazebo::Entity entity{ignition::gazebo::kNullEntity};
   public: ignition::gazebo::Model model{ignition::gazebo::kNullEntity};
+  public: ignition::gazebo::Entity modelLink{ignition::gazebo::kNullEntity};
 
   /// \brief String of the model name;
   public: std::string modelName;
@@ -380,9 +381,14 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
   public: bool imuInitialized{false};
   public: std::string imuTopicName;
   public: ignition::transport::Node node;
+  public: ignition::msgs::IMU imuMsg;
+  public: bool imuMsgValid{false};
+  public: std::mutex imuMsgMutex;
   public: void imuCb(const ignition::msgs::IMU &_msg)
   {
-    ignerr << "Got IMU data: " << _msg.DebugString() << std::endl;
+    std::lock_guard<std::mutex> lock(this->imuMsgMutex);
+    imuMsg = _msg;
+    imuMsgValid = true;
   }
   
   /// \brief Pointer to an GPS sensor
@@ -883,6 +889,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
           {
             // The parent of the imu is imu_link
             ignition::gazebo::Entity parent = _ecm.ParentEntity(_imu_entity);
+	    this->dataPtr->modelLink = parent;
             if(parent != ignition::gazebo::kNullEntity)
             {
               // The grandparent of the imu is the quad itself, which is where this plugin is attached
@@ -911,6 +918,30 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
     }
 
     this->dataPtr->node.Subscribe(this->dataPtr->imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
+
+    // While we're here, make sure that the "imu_link" entity has WorldPose and 
+    // WorldLinearVelocity components, which we'll need later.
+    if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldPose::typeId))
+    {
+      _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldPose());
+    }
+    if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinearVelocity::typeId))
+    {
+      _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldLinearVelocity());
+    }
+  }
+  else
+  {
+    // Update the control surfaces and publish the new state.
+    if (_info.simTime > this->dataPtr->lastControllerUpdateTime)
+    {
+      this->ReceiveMotorCommand();
+      if (this->dataPtr->arduPilotOnline)
+      {
+        this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
+          this->dataPtr->lastControllerUpdateTime).count(), _ecm);
+      }
+    }
   }
 }
 
@@ -924,11 +955,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::PostUpdate(const ignition::gaze
   // Update the control surfaces and publish the new state.
   if (_info.simTime > this->dataPtr->lastControllerUpdateTime)
   {
-    this->ReceiveMotorCommand();
     if (this->dataPtr->arduPilotOnline)
     {
-      //this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
-        //this->dataPtr->lastControllerUpdateTime).count(), _ecm);
       this->SendState(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime).count(),
               _ecm);
     }
@@ -983,15 +1011,13 @@ bool ignition::gazebo::systems::ArduPilotPlugin::InitArduPilotSockets(const std:
 }
 
 /////////////////////////////////////////////////
-#if 0
 void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
         const double _dt,
-        const ignition::gazebo::EntityComponentManager &_ecm)
+        ignition::gazebo::EntityComponentManager &_ecm)
 {
   // update velocity PID for controls and apply force to joint
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
   {
-    
     ignition::gazebo::components::JointForceCmd* jfc_comp = nullptr;
     ignition::gazebo::components::JointVelocityCmd* jvc_comp = nullptr;
     if (this->dataPtr->controls[i].useForce || this->dataPtr->controls[i].type == "EFFORT")
@@ -1084,8 +1110,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
     }
   }
 }
-
-#endif
 
 /////////////////////////////////////////////////
 void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
@@ -1232,37 +1256,40 @@ void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
 void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
       const ignition::gazebo::EntityComponentManager &_ecm) const
 {
-#if 0
   // send_fdm
   fdmPacket pkt;
 
   pkt.timestamp = _simTime;
   //ignerr << "timestamp [" << pkt.timestamp << "]\n";
 
+  // Make a local copy of the latest IMU data (it's filled in on receipt by imuCb()).
+  ignition::msgs::IMU imuMsg;
+  {
+    std::lock_guard<std::mutex> lock(this->dataPtr->imuMsgMutex);
+    // Wait until we've received a valid message.
+    if(!this->dataPtr->imuMsgValid)
+    {
+      return;
+    }
+    imuMsg = this->dataPtr->imuMsg;
+  }
+
   // asssumed that the imu orientation is:
   //   x forward
   //   y right
   //   z down
   // get linear acceleration in body frame
-  auto la_comp = _ecm.Component<ignition::gazebo::components::LinearAcceleration>(this->dataPtr->imu);
-  const ignition::math::Vector3d linearAccel = la_comp->Data();
-    //this->dataPtr->imuSensor->LinearAcceleration();
-
   // copy to pkt
-  pkt.imuLinearAccelerationXYZ[0] = linearAccel.X();
-  pkt.imuLinearAccelerationXYZ[1] = linearAccel.Y();
-  pkt.imuLinearAccelerationXYZ[2] = linearAccel.Z();
+  pkt.imuLinearAccelerationXYZ[0] = imuMsg.linear_acceleration().x();
+  pkt.imuLinearAccelerationXYZ[1] = imuMsg.linear_acceleration().y();
+  pkt.imuLinearAccelerationXYZ[2] = imuMsg.linear_acceleration().z();
   //ignerr << "lin accel [" << linearAccel << "]\n";
 
   // get angular velocity in body frame
-  auto av_comp = _ecm.Component<ignition::gazebo::components::AngularVelocity>(this->dataPtr->imu);
-  const ignition::math::Vector3d angularVel = av_comp->Data();
-    //this->dataPtr->imuSensor->AngularVelocity();
-
   // copy to pkt
-  pkt.imuAngularVelocityRPY[0] = angularVel.X();
-  pkt.imuAngularVelocityRPY[1] = angularVel.Y();
-  pkt.imuAngularVelocityRPY[2] = angularVel.Z();
+  pkt.imuAngularVelocityRPY[0] = imuMsg.angular_velocity().x();
+  pkt.imuAngularVelocityRPY[1] = imuMsg.angular_velocity().y();
+  pkt.imuAngularVelocityRPY[2] = imuMsg.angular_velocity().z();
   //ignerr << "ang vel [" << angularVel << "]\n";
  
   // get inertial pose and velocity
@@ -1287,7 +1314,13 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // adding modelXYZToAirplaneXForwardZDown rotates
   //   from: model XYZ
   //   to: airplane x-forward, y-left, z-down
-  auto p_comp = _ecm.Component<ignition::gazebo::components::Pose>(this->dataPtr->entity);
+  auto p_comp = _ecm.Component<ignition::gazebo::components::WorldPose>(this->dataPtr->modelLink);
+  if (p_comp == nullptr)
+  {
+    igndbg << "[" << this->dataPtr->modelName << "] "
+           << "No WorldPose data available. Not sending state to ArduPilot." << std::endl;
+    return;
+  }
   const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
     this->modelXYZToAirplaneXForwardZDown +
     p_comp->Data();
@@ -1324,20 +1357,15 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // Get NED velocity in body frame *
   // or...
   // Get model velocity in NED frame
-  /*
-  auto v_comp = _ecm.Component<ignition::gazebo::components::LinearVelocity>(this->dataPtr->entity);
+
+  auto v_comp = _ecm.Component<ignition::gazebo::components::WorldLinearVelocity>(this->dataPtr->modelLink);
   if (v_comp == nullptr)
   {
-    //v_comp = _ecm.Component<ignition::gazebo::components::LinearVelocity>(
-            //_ecm.CreateComponent(this->dataPtr->entity,
-                //ignition::gazebo::components::LinearVelocity()));
     igndbg << "[" << this->dataPtr->modelName << "] "
-           << "No LinearVelocity data available. Not sending state to ArduPilot." << std::endl;
+           << "No WorldLinearVelocity data available. Not sending state to ArduPilot." << std::endl;
     return;
   }
   const ignition::math::Vector3d velGazeboWorldFrame = v_comp->Data();
-  */
-  const ignition::math::Vector3d velGazeboWorldFrame;
 
     //this->dataPtr->model->GetLink()->WorldLinearVel();
   const ignition::math::Vector3d velNEDFrame =
@@ -1370,6 +1398,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // airspeed :     wind = Vector3(environment.wind.x, environment.wind.y, environment.wind.z)
    // pkt.airspeed = (pkt.velocity - wind).length()
 */
+  /*
   printf("Sending fdmPacket:\n"
           "%f [%f %f %f] [%f %f %f] [%f %f %f %f] [%f %f %f] [%f %f %f]\n",
           pkt.timestamp,
@@ -1378,8 +1407,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
           pkt.imuOrientationQuat[0], pkt.imuOrientationQuat[1], pkt.imuOrientationQuat[2], pkt.imuOrientationQuat[3],
           pkt.velocityXYZ[0], pkt.velocityXYZ[1], pkt.velocityXYZ[2],
           pkt.positionXYZ[0], pkt.positionXYZ[1], pkt.positionXYZ[2]);
+	  */
   this->dataPtr->socket_out.Send(&pkt, sizeof(pkt));
-#endif
 }
 
 // Register plugin

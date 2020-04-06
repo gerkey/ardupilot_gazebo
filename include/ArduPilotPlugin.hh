@@ -80,8 +80,8 @@ namespace systems
 
     /// \brief Update PID Joint controllers.
     /// \param[in] _dt time step size since last update.
-    //private: void ApplyMotorForces(const double _dt,
-                                   //const ignition::gazebo::EntityComponentManager &_ecm);
+    private: void ApplyMotorForces(const double _dt,
+                                   ignition::gazebo::EntityComponentManager &_ecm);
 
     /// \brief Reset PID Joint controllers.
     private: void ResetPIDs();
