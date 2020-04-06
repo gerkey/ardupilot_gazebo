@@ -48,24 +48,17 @@
 #include <ignition/gazebo/components/JointPosition.hh>
 #include <ignition/gazebo/components/JointVelocity.hh>
 #include <ignition/gazebo/components/JointVelocityCmd.hh>
-#include <ignition/gazebo/components/LinearAcceleration.hh>
 #include <ignition/gazebo/components/LinearVelocity.hh>
 #include <ignition/gazebo/components/Name.hh>
-#include <ignition/gazebo/components/ParentEntity.hh>
 #include <ignition/gazebo/components/Pose.hh>
 
 #include <ignition/gazebo/Model.hh>
-#include <ignition/gazebo/System.hh>
-#include <ignition/gazebo/Types.hh>
 #include <ignition/gazebo/Util.hh>
 
-#include <ignition/math/Filter.hh>
 #include <ignition/math/Helpers.hh>
 #include <ignition/math/Pose3.hh>
 #include <ignition/math/PID.hh>
 #include <ignition/math/Vector3.hh>
-
-#include <ignition/msgs/imu.pb.h>
 
 #include <ignition/plugin/Register.hh>
 
@@ -74,8 +67,6 @@
 #include <sdf/sdf.hh>
 
 #define MAX_MOTORS 255
-
-//GZ_REGISTER_MODEL_PLUGIN(ArduPilotPlugin)
 
 /// \brief A servo packet.
 struct ServoPacket
@@ -337,12 +328,13 @@ class ignition::gazebo::systems::ArduPilotSocketPrivate
 // Private data class
 class ignition::gazebo::systems::ArduPilotPluginPrivate
 {
-  /// \brief Pointer to the update event connection.
-  //public: event::ConnectionPtr updateConnection;
-
-  /// \brief Pointer to the model;
+  /// \brief The entity representing the UAV model
   public: ignition::gazebo::Entity entity{ignition::gazebo::kNullEntity};
+
+  /// \brief The UAV model
   public: ignition::gazebo::Model model{ignition::gazebo::kNullEntity};
+
+  /// \brief The entity representing one link of the model
   public: ignition::gazebo::Entity modelLink{ignition::gazebo::kNullEntity};
 
   /// \brief String of the model name;
@@ -375,15 +367,25 @@ class ignition::gazebo::systems::ArduPilotPluginPrivate
   /// \brief Ardupilot port for sender socket
   public: uint16_t fdm_port_out;
 
-  /// \brief Pointer to an IMU sensor
-  //public: std::unique_ptr<ignition::sensors::ImuSensor> imuSensor;
+  /// \brief The name of the IMU sensor
+  public: std::string imuName;
 
-  public: bool imuInitialized{false};
-  public: std::string imuTopicName;
+  /// \brief Have we initialized subscription to the IMU data yet?
+  public: bool imuInitialized;
+
+  /// \brief We need an ign-transport Node to subscribe to IMU data
   public: ignition::transport::Node node;
+
+  /// \brief A copy of the most recently received IMU data message
   public: ignition::msgs::IMU imuMsg;
-  public: bool imuMsgValid{false};
+
+  /// \brief Have we received at least one IMU data message?
+  public: bool imuMsgValid;
+
+  /// \brief This mutex should be used when accessing imuMsg or imuMsgValid
   public: std::mutex imuMsgMutex;
+
+  /// \brief This subscriber callback latches the most recently received IMU data message for later use.
   public: void imuCb(const ignition::msgs::IMU &_msg)
   {
     std::lock_guard<std::mutex> lock(this->imuMsgMutex);
@@ -416,6 +418,8 @@ ignition::gazebo::systems::ArduPilotPlugin::ArduPilotPlugin()
 {
   this->dataPtr->arduPilotOnline = false;
   this->dataPtr->connectionTimeoutCount = 0;
+  this->dataPtr->imuInitialized = false;
+  this->dataPtr->imuMsgValid = false;
 }
 
 /////////////////////////////////////////////////
@@ -424,7 +428,6 @@ ignition::gazebo::systems::ArduPilotPlugin::~ArduPilotPlugin()
 }
 
 /////////////////////////////////////////////////
-//void ArduPilotPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazebo::Entity &_entity,
       const std::shared_ptr<const sdf::Element> &_sdf,
       ignition::gazebo::EntityComponentManager &_ecm,
@@ -541,7 +544,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
     }
 
     // Get the pointer to the joint.
-    //control.joint = _model->GetJoint(control.jointName);
     control.joint = this->dataPtr->model.JointByName(_ecm, control.jointName);
     if (control.joint == ignition::gazebo::kNullEntity)
     {
@@ -677,51 +679,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
     controlSDF = controlSDF->GetNextElement("control");
   }
 
+  this->dataPtr->imuName = _sdf->Get("imuName", static_cast<std::string>("imu_sensor")).first;
 
-  /*
-  this->dataPtr->imuSensor = std::dynamic_pointer_cast<sensors::ImuSensor>
-      (sensors::SensorManager::Instance()->GetSensor(imuScopedName[0]));
-
-  if (!this->dataPtr->imuSensor)
-  {
-    if (imuScopedName.size() > 1)
-    {
-      ignwarn << "[" << this->dataPtr->modelName << "] "
-             << "first imu_sensor scoped name [" << imuScopedName[0]
-             << "] not found, trying the rest of the sensor names.\n";
-      for (unsigned k = 1; k < imuScopedName.size(); ++k)
-      {
-        this->dataPtr->imuSensor = std::dynamic_pointer_cast<sensors::ImuSensor>
-          (sensors::SensorManager::Instance()->GetSensor(imuScopedName[k]));
-        if (this->dataPtr->imuSensor)
-        {
-          ignwarn << "found [" << imuScopedName[k] << "]\n";
-          break;
-        }
-      }
-    }
-
-    if (!this->dataPtr->imuSensor)
-    {
-      ignwarn << "[" << this->dataPtr->modelName << "] "
-             << "imu_sensor scoped name [" << imuName
-             << "] not found, trying unscoped name.\n" << "\n";
-      // TODO: this fails for multi-nested models.
-      // TODO: and transforms fail for rotated nested model,
-      //       joints point the wrong way.
-      this->dataPtr->imuSensor = std::dynamic_pointer_cast<sensors::ImuSensor>
-        (sensors::SensorManager::Instance()->GetSensor(imuName));
-    }
-
-    if (!this->dataPtr->imuSensor)
-    {
-      ignerr << "[" << this->dataPtr->modelName << "] "
-            << "imu_sensor [" << imuName
-            << "] not found, abort ArduPilot plugin.\n" << "\n";
-      return;
-    }
-  }
-  */
 /* NOT MERGED IN MASTER YET
     // Get GPS
   std::string gpsName = _sdf->Get("imuName", static_cast<std::string>("gps_sensor")).first;
@@ -860,11 +819,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
   this->dataPtr->connectionTimeoutMaxCount =
     sdfClone->Get("connectionTimeoutMaxCount", 10).first;
 
-  // Listen to the update event. This event is broadcast every simulation
-  // iteration.
-  //this->dataPtr->updateConnection = event::Events::ConnectWorldUpdateBegin(
-      //std::bind(&ArduPilotPlugin::OnUpdate, this));
-
   ignlog << "[" << this->dataPtr->modelName << "] "
         << "ArduPilot ready to fly. The force will be with you" << std::endl;
 }
@@ -878,14 +832,13 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
   {
     // Set unconditionally because we're only going to try this once.
     this->dataPtr->imuInitialized = true;
-    // TODO: use result from SDF (need to store from inside Configure())
-    std::string imuName("imu_sensor");
+    std::string imuTopicName;
     _ecm.Each<ignition::gazebo::components::Imu, ignition::gazebo::components::Name>(
             [&](const ignition::gazebo::Entity &_imu_entity,
                 const ignition::gazebo::components::Imu * /*_imu*/,
                 const ignition::gazebo::components::Name *_name)->bool
         {
-          if(_name->Data() == imuName)
+          if(_name->Data() == this->dataPtr->imuName)
           {
             // The parent of the imu is imu_link
             ignition::gazebo::Entity parent = _ecm.ParentEntity(_imu_entity);
@@ -897,11 +850,10 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
               if(gparent != ignition::gazebo::kNullEntity)
               {
                 ignition::gazebo::Model gparent_model(gparent);
-                ignerr << gparent_model.Name(_ecm) << " == " << this->dataPtr->modelName << std::endl;
                 if(gparent_model.Name(_ecm) == this->dataPtr->modelName)
                 {
-                  this->dataPtr->imuTopicName = ignition::gazebo::scopedName(_imu_entity, _ecm) + "/imu";
-                  igndbg << "Found IMU topic: " << this->dataPtr->imuTopicName << std::endl;
+                  imuTopicName = ignition::gazebo::scopedName(_imu_entity, _ecm) + "/imu";
+                  igndbg << "Computed IMU topic to be: " << imuTopicName << std::endl;
                 }
               }
             }
@@ -909,15 +861,15 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
           return true;
         });
     
-    if(this->dataPtr->imuTopicName.empty())
+    if(imuTopicName.empty())
     {
       ignerr << "[" << this->dataPtr->modelName << "] "
-            << "imu_sensor [" << imuName
+            << "imu_sensor [" << this->dataPtr->imuName
             << "] not found, abort ArduPilot plugin." << "\n";
       return;
     }
 
-    this->dataPtr->node.Subscribe(this->dataPtr->imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
+    this->dataPtr->node.Subscribe(imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
 
     // While we're here, make sure that the "imu_link" entity has WorldPose and 
     // WorldLinearVelocity components, which we'll need later.
@@ -950,7 +902,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::PostUpdate(const ignition::gaze
                                                             const ignition::gazebo::EntityComponentManager &_ecm)
 {
   std::lock_guard<std::mutex> lock(this->dataPtr->mutex);
-
 
   // Update the control surfaces and publish the new state.
   if (_info.simTime > this->dataPtr->lastControllerUpdateTime)
@@ -1009,6 +960,8 @@ bool ignition::gazebo::systems::ArduPilotPlugin::InitArduPilotSockets(const std:
 
   return true;
 }
+
+// TODO: continue code cleanup from here
 
 /////////////////////////////////////////////////
 void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
