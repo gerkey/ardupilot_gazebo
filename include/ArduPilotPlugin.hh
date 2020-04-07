@@ -18,6 +18,7 @@
 #define GAZEBO_PLUGINS_ARDUPILOTPLUGIN_HH_
 
 #include <ignition/gazebo/System.hh>
+#include <sdf/sdf.hh>
 
 namespace ignition
 {
@@ -66,16 +67,19 @@ namespace systems
     /// \brief Destructor.
     public: ~ArduPilotPlugin() override;
 
+    /// \brief Load configuration from SDF on startup.
     public: void Configure(const ignition::gazebo::Entity &_entity,
       const std::shared_ptr<const sdf::Element> &_sdf,
       ignition::gazebo::EntityComponentManager &_ecm,
       ignition::gazebo::EventManager &_eventMgr) final;
 
-    public: void PostUpdate(const ignition::gazebo::UpdateInfo &_info,
-                            const ignition::gazebo::EntityComponentManager &_ecm) final;
-
+    /// \brief Do the part of one update loop that involves making changes to simulation.
     public: void PreUpdate(const ignition::gazebo::UpdateInfo &_info,
                            ignition::gazebo::EntityComponentManager &_ecm) final;
+
+    /// \brief Do the part of one update loop that involves reading results from simulation.
+    public: void PostUpdate(const ignition::gazebo::UpdateInfo &_info,
+                            const ignition::gazebo::EntityComponentManager &_ecm) final;
 
 
     /// \brief Update PID Joint controllers.
