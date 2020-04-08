@@ -447,6 +447,17 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
   }
 
   this->dataPtr->modelName = this->dataPtr->model.Name(_ecm);
+  
+  // Make sure that the "imu_link" entity has WorldPose and WorldLinearVelocity
+  // components, which we'll need later.
+  if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldPose::typeId))
+  {
+    _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldPose());
+  }
+  if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinearVelocity::typeId))
+  {
+    _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldLinearVelocity());
+  }
 
   // modelXYZToAirplaneXForwardZDown brings us from gazebo model frame:
   // x-forward, y-right, z-down
@@ -870,17 +881,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
     }
 
     this->dataPtr->node.Subscribe(imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
-
-    // While we're here, make sure that the "imu_link" entity has WorldPose and 
-    // WorldLinearVelocity components, which we'll need later.
-    if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldPose::typeId))
-    {
-      _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldPose());
-    }
-    if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinearVelocity::typeId))
-    {
-      _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldLinearVelocity());
-    }
   }
   else
   {
