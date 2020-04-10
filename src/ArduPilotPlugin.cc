@@ -437,7 +437,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
   this->dataPtr->model = ignition::gazebo::Model(_entity);
 
   // Make a clone so that we can call non-const methods
-  auto sdfClone = _sdf->Clone();
+  sdf::ElementPtr sdfClone = _sdf->Clone();
 
   if (!this->dataPtr->model.Valid(_ecm))
   {
@@ -998,7 +998,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
       {
         const double velTarget = this->dataPtr->controls[i].cmd /
           this->dataPtr->controls[i].rotorVelocitySlowdownSim;
-        auto v_comp = _ecm.Component<ignition::gazebo::components::JointVelocity>(this->dataPtr->controls[i].joint);
+        ignition::gazebo::components::JointVelocity* v_comp =
+          _ecm.Component<ignition::gazebo::components::JointVelocity>(this->dataPtr->controls[i].joint);
         const double vel = v_comp->Data()[0];
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
@@ -1007,7 +1008,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
         const double posTarget = this->dataPtr->controls[i].cmd;
-        auto p_comp = _ecm.Component<ignition::gazebo::components::JointPosition>(this->dataPtr->controls[i].joint);
+        ignition::gazebo::components::JointPosition* p_comp =
+          _ecm.Component<ignition::gazebo::components::JointPosition>(this->dataPtr->controls[i].joint);
         const double pos = p_comp->Data()[0];
         const double error = pos - posTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
@@ -1250,7 +1252,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // adding modelXYZToAirplaneXForwardZDown rotates
   //   from: model XYZ
   //   to: airplane x-forward, y-left, z-down
-  auto p_comp = _ecm.Component<ignition::gazebo::components::WorldPose>(this->dataPtr->modelLink);
+  const ignition::gazebo::components::WorldPose* p_comp =
+    _ecm.Component<ignition::gazebo::components::WorldPose>(this->dataPtr->modelLink);
   const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
     this->modelXYZToAirplaneXForwardZDown +
     p_comp->Data();
@@ -1286,7 +1289,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // or...
   // Get model velocity in NED frame
 
-  auto v_comp = _ecm.Component<ignition::gazebo::components::WorldLinearVelocity>(this->dataPtr->modelLink);
+  const ignition::gazebo::components::WorldLinearVelocity* v_comp =
+    _ecm.Component<ignition::gazebo::components::WorldLinearVelocity>(this->dataPtr->modelLink);
   const ignition::math::Vector3d velGazeboWorldFrame = v_comp->Data();
   const ignition::math::Vector3d velNEDFrame =
     this->gazeboXYZToNED.Rot().RotateVectorReverse(velGazeboWorldFrame);
