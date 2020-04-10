@@ -160,6 +160,8 @@ Run:
         . ~/ign/install/setup.bash
         # Help ign-gazebo find the libArduPilotPlugin.so that we built
         export IGN_GAZEBO_SYSTEM_PLUGIN_PATH=~/ardupilot_gazebo/build:$IGN_GAZEBO_SYSTEM_PLUGIN_PATH
+        # Help ign-gazebo find the meshes used by the iris model (the model://foo/bar syntax in model.sdf)
+        export IGN_FILE_PATH=~/ardupilot_gazebo/models
         ign gazebo -r worlds/iris_arducopter_runway.world
 
 1. In another terminal, start ArduCopter:
