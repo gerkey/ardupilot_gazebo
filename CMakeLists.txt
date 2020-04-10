@@ -8,7 +8,6 @@ project(ardupilot_sitl_gazebo)
 ## Find Dependencies ##
 #######################
 
-#find_package(gazebo REQUIRED)
 find_package(sdformat9 REQUIRED)
 find_package(ignition-common3-all REQUIRED)
 find_package(ignition-gazebo3-all REQUIRED)
