@@ -969,24 +969,24 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
   // update velocity PID for controls and apply force to joint
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
   {
-    ignition::gazebo::components::JointForceCmd* jfc_comp = nullptr;
-    ignition::gazebo::components::JointVelocityCmd* jvc_comp = nullptr;
+    ignition::gazebo::components::JointForceCmd* jfcComp = nullptr;
+    ignition::gazebo::components::JointVelocityCmd* jvcComp = nullptr;
     if (this->dataPtr->controls[i].useForce || this->dataPtr->controls[i].type == "EFFORT")
     {
-      jfc_comp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(this->dataPtr->controls[i].joint);
-      if (jfc_comp == nullptr)
+      jfcComp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(this->dataPtr->controls[i].joint);
+      if (jfcComp == nullptr)
       {
-        jfc_comp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
+        jfcComp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
             _ecm.CreateComponent(this->dataPtr->controls[i].joint,
                                              ignition::gazebo::components::JointForceCmd({0})));
       }
     }
     else if (this->dataPtr->controls[i].type == "VELOCITY")
     {
-      jvc_comp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(this->dataPtr->controls[i].joint);
-      if (jvc_comp == nullptr)
+      jvcComp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(this->dataPtr->controls[i].joint);
+      if (jvcComp == nullptr)
       {
-        jvc_comp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(
+        jvcComp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(
             _ecm.CreateComponent(this->dataPtr->controls[i].joint,
                              ignition::gazebo::components::JointVelocityCmd({0})));
       }
@@ -998,27 +998,27 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
       {
         const double velTarget = this->dataPtr->controls[i].cmd /
           this->dataPtr->controls[i].rotorVelocitySlowdownSim;
-        ignition::gazebo::components::JointVelocity* v_comp =
+        ignition::gazebo::components::JointVelocity* vComp =
           _ecm.Component<ignition::gazebo::components::JointVelocity>(this->dataPtr->controls[i].joint);
-        const double vel = v_comp->Data()[0];
+        const double vel = vComp->Data()[0];
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
-        jfc_comp->Data()[0] = force;
+        jfcComp->Data()[0] = force;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
         const double posTarget = this->dataPtr->controls[i].cmd;
-        ignition::gazebo::components::JointPosition* p_comp =
+        ignition::gazebo::components::JointPosition* pComp =
           _ecm.Component<ignition::gazebo::components::JointPosition>(this->dataPtr->controls[i].joint);
-        const double pos = p_comp->Data()[0];
+        const double pos = pComp->Data()[0];
         const double error = pos - posTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
-        jfc_comp->Data()[0] = force;
+        jfcComp->Data()[0] = force;
       }
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
-        jfc_comp->Data()[0] = force;
+        jfcComp->Data()[0] = force;
       }
       else
       {
@@ -1029,7 +1029,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
     {
       if (this->dataPtr->controls[i].type == "VELOCITY")
       {
-        jvc_comp->Data()[0] = this->dataPtr->controls[i].cmd;
+        jvcComp->Data()[0] = this->dataPtr->controls[i].cmd;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
@@ -1040,7 +1040,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
-        jfc_comp->Data()[0] = force;
+        jfcComp->Data()[0] = force;
       }
       else
       {
@@ -1252,11 +1252,11 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // adding modelXYZToAirplaneXForwardZDown rotates
   //   from: model XYZ
   //   to: airplane x-forward, y-left, z-down
-  const ignition::gazebo::components::WorldPose* p_comp =
+  const ignition::gazebo::components::WorldPose* pComp =
     _ecm.Component<ignition::gazebo::components::WorldPose>(this->dataPtr->modelLink);
   const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
     this->modelXYZToAirplaneXForwardZDown +
-    p_comp->Data();
+    pComp->Data();
 
   // get transform from world NED to Model frame
   const ignition::math::Pose3d NEDToModelXForwardZUp =
@@ -1289,9 +1289,9 @@ void ignition::gazebo::systems::ArduPilotPlugin::SendState(double _simTime,
   // or...
   // Get model velocity in NED frame
 
-  const ignition::gazebo::components::WorldLinearVelocity* v_comp =
+  const ignition::gazebo::components::WorldLinearVelocity* vComp =
     _ecm.Component<ignition::gazebo::components::WorldLinearVelocity>(this->dataPtr->modelLink);
-  const ignition::math::Vector3d velGazeboWorldFrame = v_comp->Data();
+  const ignition::math::Vector3d velGazeboWorldFrame = vComp->Data();
   const ignition::math::Vector3d velNEDFrame =
     this->gazeboXYZToNED.Rot().RotateVectorReverse(velGazeboWorldFrame);
   pkt.velocityXYZ[0] = velNEDFrame.X();
