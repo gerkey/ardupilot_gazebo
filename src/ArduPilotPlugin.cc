@@ -448,17 +448,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::Configure(const ignition::gazeb
 
   this->dataPtr->modelName = this->dataPtr->model.Name(_ecm);
   
-  // Make sure that the "imu_link" entity has WorldPose and WorldLinearVelocity
-  // components, which we'll need later.
-  if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldPose::typeId))
-  {
-    _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldPose());
-  }
-  if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinearVelocity::typeId))
-  {
-    _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldLinearVelocity());
-  }
-
   // modelXYZToAirplaneXForwardZDown brings us from gazebo model frame:
   // x-forward, y-right, z-down
   // to the aerospace convention: x-forward, y-left, z-up
@@ -881,6 +870,17 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
     }
 
     this->dataPtr->node.Subscribe(imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
+
+    // Make sure that the "imu_link" entity has WorldPose and WorldLinearVelocity
+    // components, which we'll need later.
+    if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldPose::typeId))
+    {
+      _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldPose());
+    }
+    if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinearVelocity::typeId))
+    {
+      _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldLinearVelocity());
+    }
   }
   else
   {
@@ -1004,6 +1004,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
         jfcComp->Data()[0] = force;
+	igndbg << "Channel " << i << ": " << velTarget << " " << error << " " << force << std::endl;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
