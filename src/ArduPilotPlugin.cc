@@ -1004,7 +1004,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
         jfcComp->Data()[0] = force;
-	igndbg << "Channel " << i << ": " << velTarget << " " << error << " " << force << std::endl;
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
@@ -1063,6 +1062,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
   // Once ArduPilot presence is detected, it takes this many
   // missed receives before declaring the FCS offline.
 
+  static int cnt=4000;
   ServoPacket pkt;
   uint32_t waitMs;
   if (this->dataPtr->arduPilotOnline)
@@ -1156,21 +1156,27 @@ void ignition::gazebo::systems::ArduPilotPlugin::ReceiveMotorCommand()
       {
         if (this->dataPtr->controls[i].channel < recvChannels)
         {
+          if(cnt-- > 0)
+	  {
+		  igndbg << "skipping cmd" << std::endl;
+		  return;
+	  }
           // bound incoming cmd between 0 and 1
           const double cmd = ignition::math::clamp(
             pkt.motorSpeed[this->dataPtr->controls[i].channel],
             -1.0f, 1.0f);
+
           this->dataPtr->controls[i].cmd =
             this->dataPtr->controls[i].multiplier *
             (this->dataPtr->controls[i].offset + cmd);
-          // igndbg << "apply input chan[" << this->dataPtr->controls[i].channel
-          //       << "] to control chan[" << i
-          //       << "] with joint name ["
-          //       << this->dataPtr->controls[i].jointName
-          //       << "] raw cmd ["
-          //       << pkt.motorSpeed[this->dataPtr->controls[i].channel]
-          //       << "] adjusted cmd [" << this->dataPtr->controls[i].cmd
-          //       << "].\n";
+          igndbg << "apply input chan[" << this->dataPtr->controls[i].channel
+                << "] to control chan[" << i
+                << "] with joint name ["
+                << this->dataPtr->controls[i].jointName
+                << "] raw cmd ["
+                << pkt.motorSpeed[this->dataPtr->controls[i].channel]
+                << "] adjusted cmd [" << this->dataPtr->controls[i].cmd
+                << "].\n";
         }
         else
         {
