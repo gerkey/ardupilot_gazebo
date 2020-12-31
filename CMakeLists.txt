@@ -10,11 +10,9 @@ project(ardupilot_sitl_gazebo)
 
 find_package(sdformat9 REQUIRED)
 find_package(ignition-common3-all REQUIRED)
-find_package(ignition-gazebo3-all REQUIRED)
+find_package(ignition-gazebo3-all REQUIRED VERSION 3.6)
 find_package(ignition-math6-all REQUIRED)
 find_package(ignition-msgs5-all REQUIRED)
-find_package(ignition-physics2-all REQUIRED)
-find_package(ignition-sensors3-all REQUIRED)
 find_package(ignition-transport8-all REQUIRED)
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GAZEBO_CXX_FLAGS}")
 
@@ -135,8 +133,6 @@ include_directories(
 	${IGNITION-GAZEBO_INCLUDE_DIRS}
 	${IGNITION-MATH_INCLUDE_DIRS}
 	${IGNITION-MSGS_INCLUDE_DIRS}
-	${IGNITION-PHYSICS_INCLUDE_DIRS}
-	${IGNITION-SENSORS_INCLUDE_DIRS}
 	${IGNITION-TRANSPORT_INCLUDE_DIRS}
         )
 
@@ -146,8 +142,6 @@ link_libraries(
 	${IGNITION-GAZEBO_LIBRARIES}
 	${IGNITION-MATH_LIBRARIES}
 	${IGNITION-MSGS_LIBRARIES}
-	${IGNITION-PHYSICS_LIBRARIES}
-	${IGNITION-SENSORS_LIBRARIES}
 	${IGNITION-TRANSPORT_LIBRARIES}
         )
 

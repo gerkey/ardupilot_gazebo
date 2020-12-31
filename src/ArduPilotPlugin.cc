@@ -50,7 +50,9 @@
 #include <ignition/gazebo/components/JointVelocityCmd.hh>
 #include <ignition/gazebo/components/LinearVelocity.hh>
 #include <ignition/gazebo/components/Name.hh>
+#include <ignition/gazebo/components/ParentEntity.hh>
 #include <ignition/gazebo/components/Pose.hh>
+#include <ignition/gazebo/components/Sensor.hh>
 
 #include <ignition/gazebo/Model.hh>
 #include <ignition/gazebo/Util.hh>
@@ -832,36 +834,13 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
   {
     // Set unconditionally because we're only going to try this once.
     this->dataPtr->imuInitialized = true;
-    std::string imuTopicName;
-    _ecm.Each<ignition::gazebo::components::Imu, ignition::gazebo::components::Name>(
-            [&](const ignition::gazebo::Entity &_imu_entity,
-                const ignition::gazebo::components::Imu * /*_imu*/,
-                const ignition::gazebo::components::Name *_name)->bool
-        {
-          if(_name->Data() == this->dataPtr->imuName)
-          {
-            // The parent of the imu is imu_link
-            ignition::gazebo::Entity parent = _ecm.ParentEntity(_imu_entity);
-	    this->dataPtr->modelLink = parent;
-            if(parent != ignition::gazebo::kNullEntity)
-            {
-              // The grandparent of the imu is the quad itself, which is where this plugin is attached
-              ignition::gazebo::Entity gparent = _ecm.ParentEntity(parent);
-              if(gparent != ignition::gazebo::kNullEntity)
-              {
-                ignition::gazebo::Model gparent_model(gparent);
-                if(gparent_model.Name(_ecm) == this->dataPtr->modelName)
-                {
-                  imuTopicName = ignition::gazebo::scopedName(_imu_entity, _ecm) + "/imu";
-                  igndbg << "Computed IMU topic to be: " << imuTopicName << std::endl;
-                }
-              }
-            }
-          }
-          return true;
-        });
-    
-    if(imuTopicName.empty())
+    auto imuEntity = _ecm.EntityByComponents(
+        components::Name(this->dataPtr->imuName),
+        components::Imu(),
+        components::ParentEntity(this->dataPtr->modelLink));
+    auto imuTopicName = _ecm.ComponentData<components::SensorTopic>(imuEntity);
+
+    if(!imuTopicName.has_value())
     {
       ignerr << "[" << this->dataPtr->modelName << "] "
             << "imu_sensor [" << this->dataPtr->imuName
@@ -869,7 +848,7 @@ void ignition::gazebo::systems::ArduPilotPlugin::PreUpdate(const ignition::gazeb
       return;
     }
 
-    this->dataPtr->node.Subscribe(imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
+    this->dataPtr->node.Subscribe(*imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
 
     // Make sure that the "imu_link" entity has WorldPose and WorldLinearVelocity
     // components, which we'll need later.
@@ -969,29 +948,6 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
   // update velocity PID for controls and apply force to joint
   for (size_t i = 0; i < this->dataPtr->controls.size(); ++i)
   {
-    ignition::gazebo::components::JointForceCmd* jfcComp = nullptr;
-    ignition::gazebo::components::JointVelocityCmd* jvcComp = nullptr;
-    if (this->dataPtr->controls[i].useForce || this->dataPtr->controls[i].type == "EFFORT")
-    {
-      jfcComp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(this->dataPtr->controls[i].joint);
-      if (jfcComp == nullptr)
-      {
-        jfcComp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
-            _ecm.CreateComponent(this->dataPtr->controls[i].joint,
-                                             ignition::gazebo::components::JointForceCmd({0})));
-      }
-    }
-    else if (this->dataPtr->controls[i].type == "VELOCITY")
-    {
-      jvcComp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(this->dataPtr->controls[i].joint);
-      if (jvcComp == nullptr)
-      {
-        jvcComp = _ecm.Component<ignition::gazebo::components::JointVelocityCmd>(
-            _ecm.CreateComponent(this->dataPtr->controls[i].joint,
-                             ignition::gazebo::components::JointVelocityCmd({0})));
-      }
-    }
-
     if (this->dataPtr->controls[i].useForce)
     {
       if (this->dataPtr->controls[i].type == "VELOCITY")
@@ -1003,7 +959,8 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
         const double vel = vComp->Data()[0];
         const double error = vel - velTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
-        jfcComp->Data()[0] = force;
+        _ecm.SetComponentData(this->dataPtr->controls[i].joint,
+            ignition::gazebo::components::JointForceCmd({force}));
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
@@ -1013,34 +970,38 @@ void ignition::gazebo::systems::ArduPilotPlugin::ApplyMotorForces(
         const double pos = pComp->Data()[0];
         const double error = pos - posTarget;
         const double force = this->dataPtr->controls[i].pid.Update(error, std::chrono::duration<double>(_dt));
-        jfcComp->Data()[0] = force;
+        _ecm.SetComponentData(this->dataPtr->controls[i].joint,
+            ignition::gazebo::components::JointForceCmd({force}));
       }
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
-        jfcComp->Data()[0] = force;
+        _ecm.SetComponentData(this->dataPtr->controls[i].joint,
+            ignition::gazebo::components::JointForceCmd({force}));
       }
       else
       {
         // do nothing
       }
     }
-    else 
+    else
     {
       if (this->dataPtr->controls[i].type == "VELOCITY")
       {
-        jvcComp->Data()[0] = this->dataPtr->controls[i].cmd;
+        _ecm.SetComponentData(this->dataPtr->controls[i].joint,
+            ignition::gazebo::components::JointVelocityCmd({this->dataPtr->controls[i].cmd}));
       }
       else if (this->dataPtr->controls[i].type == "POSITION")
       {
         //TODO: figure out whether position control matters, and if so, how to use it.
-        ignwarn << "Failed to do position control on joint " << i << 
+        ignwarn << "Failed to do position control on joint " << i <<
             " because there's no JointPositionCmd component (yet?)" << std::endl;
       }
       else if (this->dataPtr->controls[i].type == "EFFORT")
       {
         const double force = this->dataPtr->controls[i].cmd;
-        jfcComp->Data()[0] = force;
+        _ecm.SetComponentData(this->dataPtr->controls[i].joint,
+            ignition::gazebo::components::JointForceCmd({force}));
       }
       else
       {
